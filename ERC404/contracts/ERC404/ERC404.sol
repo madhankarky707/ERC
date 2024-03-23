@@ -101,7 +101,7 @@ abstract contract ERC404 is ERC721, IERC20Errors {
     ) public virtual override {
         if (id <= minted) {
             super.transferFrom(from, to, id);
-            _updatePushAndPop(from, to, id);
+            _updateIndex(from, to, id);
             emit ERC20Transfer(from, to, _getUnit());
         } else {
             if (allowance(from, msg.sender) != type(uint256).max)
@@ -216,7 +216,7 @@ abstract contract ERC404 is ERC721, IERC20Errors {
      * @param to The address to which the token is being transferred.
      * @param tokenId The ID of the token being transferred.
      */
-    function _updatePushAndPop(address from, address to, uint256 tokenId) internal virtual {
+    function _updateIndex(address from, address to, uint256 tokenId) internal virtual {
         uint256 updatedId = _owned[from][_owned[from].length - 1];
         _owned[from][_ownedIndex[tokenId]] = updatedId;
         _owned[from].pop();
@@ -261,10 +261,10 @@ abstract contract ERC404 is ERC721, IERC20Errors {
         }
 
         uint256 id = _owned[from][_owned[from].length - 1];
+        _approve(address(0), id, address(0), false);
         _owned[from].pop();
         delete _ownedIndex[id];
         delete _owners[id];
-        // delete _tokenApprovals[id];
 
         emit Transfer(from, address(0), id);
     }
