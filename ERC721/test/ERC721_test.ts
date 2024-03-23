@@ -102,7 +102,4 @@ describe("SampleNFT", function () {
     // Check the approved address for the token
     expect(await sampleNFT.getApproved(0)).to.equal(addr1.address);
   });
-
-
-  // Additional test cases can be added as needed
 });
