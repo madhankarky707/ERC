@@ -52,11 +52,11 @@ contract ValorWar is AccessControl, Nestable, IERC721Metadata, ERC721URIStorage 
     * @dev Sets the URI for a given token ID.
     * Accessible only by users with the OPERATOR_ROLE.
     * @param warriorId The ID of the token to set the URI for.
-    * @param _tokenURI The URI to set for the token.
+    * @param _warriorURI The URI to set for the token.
     */
-    function setWarriorURI(uint256 warriorId, string memory _tokenURI) public virtual onlyRole(OPERATOR_ROLE) {
+    function setWarriorURI(uint256 warriorId, string memory _warriorURI) public virtual onlyRole(OPERATOR_ROLE) {
         _requireMinted(warriorId);
-        _setTokenURI(warriorId, _tokenURI);
+        _setTokenURI(warriorId, _warriorURI);
     }
 
     /**
@@ -74,7 +74,7 @@ contract ValorWar is AccessControl, Nestable, IERC721Metadata, ERC721URIStorage 
     * @dev Destroys a warrior specified by its ID.
     * @param warriorId The ID of the warrior to be destroyed.
     */
-    function destroyWarrior(uint256 warriorId) public {
+    function sacrificeWarrior(uint256 warriorId) public {
         Child[] memory children = childrenOf(warriorId);
         uint256 length = children.length;
         burn(

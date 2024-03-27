@@ -5,13 +5,14 @@
 pragma solidity ^0.8.21;
 
 import {IERC7401} from "../interfaces/IERC7401.sol";
+import {IERC721Errors} from "../interfaces/draft-IERC6093.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import {Context} from "@openzeppelin/contracts/utils/Context.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
-abstract contract Nestable is Context, IERC165 , IERC721, IERC7401 {
+abstract contract Nestable is Context, IERC165 , IERC721, IERC7401, IERC721Errors {
     using Strings for uint256;
     uint256 private constant _MAX_LEVELS_TO_CHECK_FOR_INHERITANCE_LOOP = 100;
 
@@ -173,10 +174,10 @@ abstract contract Nestable is Context, IERC165 , IERC721, IERC7401 {
      */
     function approve(address to, uint256 tokenId) public virtual {
         address owner = ownerOf(tokenId);
-        if (to == owner) revert("ERC721ApprovalToCurrentOwner()");
+        if (to == owner) revert ERC721InvalidApprover(to);
 
         if (_msgSender() != owner && !isApprovedForAll(owner, _msgSender()))
-            revert("ERC721ApproveCallerIsNotOwnerNorApprovedForAll()");
+            revert ERC721InvalidApprover(_msgSender());
 
         _approve(to, tokenId);
     }
@@ -192,7 +193,7 @@ abstract contract Nestable is Context, IERC165 , IERC721, IERC7401 {
      * @param approved A boolean value signifying whether the approval is being granted (`true`) or (`revoked`)
      */
     function setApprovalForAll(address operator, bool approved) public virtual {
-        if (_msgSender() == operator) revert("ERC721ApproveToCaller()");
+        if (_msgSender() == operator) revert ERC721InvalidOperator(_msgSender());
         _operatorApprovals[_msgSender()][operator] = approved;
         emit ApprovalForAll(_msgSender(), operator, approved);
     }
@@ -208,7 +209,7 @@ abstract contract Nestable is Context, IERC165 , IERC721, IERC7401 {
         _requireMinted(parentId);
 
         address childAddress = _msgSender();
-        if (childAddress.code.length == 0) revert("IsNotContract()");
+        if (childAddress.code.length == 0) revert("not a contract address");
 
         Child memory child = Child({
             contractAddress: childAddress,
@@ -222,7 +223,7 @@ abstract contract Nestable is Context, IERC165 , IERC721, IERC7401 {
         if (length < 128) {
             _pendingChildren[parentId].push(child);
         } else {
-            revert("MaxPendingChildrenReached()");
+            revert("maximum children limit reached");
         }
 
         // Previous length matches the index for the new child
@@ -303,7 +304,7 @@ abstract contract Nestable is Context, IERC165 , IERC721, IERC7401 {
         Child memory child = pendingChildOf(parentId, childIndex);
         _checkExpectedChild(child, childAddress, childId);
         if (_childIsInActive[childAddress][childId] != 0)
-            revert("ChildAlreadyExists()");
+            revert("child already activated");
 
         _beforeAcceptChild(parentId, childIndex, childAddress, childId);
 
@@ -345,7 +346,7 @@ abstract contract Nestable is Context, IERC165 , IERC721, IERC7401 {
     ) internal virtual {
         _transfer(from, to, tokenId, data);
         if (!_checkOnERC721Received(from, to, tokenId, data))
-            revert("ERC721TransferToNonReceiverImplementer()");
+            revert ERC721InvalidReceiver(to);
     }
 
     /**
@@ -368,8 +369,8 @@ abstract contract Nestable is Context, IERC165 , IERC721, IERC7401 {
         bytes memory data
     ) internal virtual {
         (address immediateOwner, uint256 parentId, ) = directOwnerOf(tokenId);
-        if (immediateOwner != from) revert("ERC721TransferFromIncorrectOwner()");
-        if (to == address(0)) revert("ERC721TransferToTheZeroAddress()");
+        if (immediateOwner != from) revert ERC721InvalidOwner(from);
+        if (to == address(0)) revert ERC721InvalidReceiver(to);
 
         _beforeTokenTransfer(from, to, tokenId);
         _beforeNestedTokenTransfer(from, to, parentId, 0, tokenId, data);
@@ -403,9 +404,9 @@ abstract contract Nestable is Context, IERC165 , IERC721, IERC7401 {
         bytes memory data
     ) internal virtual {
         (address immediateOwner, uint256 parentId, ) = directOwnerOf(tokenId);
-        if (immediateOwner != from) revert("ERC721TransferFromIncorrectOwner()");
+        if (immediateOwner != from) revert ERC721InvalidOwner(from);
         if (to == address(this) && tokenId == destinationId)
-            revert("NestableTransferToSelf()");
+            revert("cannot nest transfer to self");
 
         _checkDestination(to);
         _checkForInheritanceLoop(tokenId, to, destinationId);
@@ -441,7 +442,7 @@ abstract contract Nestable is Context, IERC165 , IERC721, IERC7401 {
     ) internal virtual {
         _mint(to, tokenId, data);
         if (!_checkOnERC721Received(address(0), to, tokenId, data))
-            revert("ERC721TransferToNonReceiverImplementer()");
+            revert ERC721InvalidReceiver(to);
     }
 
     /**
@@ -535,7 +536,7 @@ abstract contract Nestable is Context, IERC165 , IERC721, IERC7401 {
         uint256 length = children.length; //gas savings
         for (uint256 i; i < length; ) {
             if (totalChildBurns >= maxChildrenBurns)
-                revert("MaxRecursiveBurnsReached(children[i].contractAddress,children[i].tokenId)");
+                revert("maximum burn reached");
             delete _childIsInActive[children[i].contractAddress][
                 children[i].tokenId
             ];
@@ -873,7 +874,7 @@ abstract contract Nestable is Context, IERC165 , IERC721, IERC7401 {
                 valid = retval == IERC721Receiver.onERC721Received.selector;
             } catch (bytes memory reason) {
                 if (reason.length == uint256(0)) {
-                    revert("ERC721TransferToNonReceiverImplementer()");
+                    revert ERC721InvalidReceiver(to);
                 } else {
                     /// @solidity memory-safe-assembly
                     assembly {
@@ -904,7 +905,7 @@ abstract contract Nestable is Context, IERC165 , IERC721, IERC7401 {
         uint256 maxRejections
     ) internal virtual {
         if (_pendingChildren[tokenId].length > maxRejections)
-            revert("UnexpectedNumberOfChildren()");
+            revert("exits the maximum rejection");
 
         _beforeRejectAllChildren(tokenId);
         delete _pendingChildren[tokenId];
@@ -1074,9 +1075,9 @@ abstract contract Nestable is Context, IERC165 , IERC721, IERC7401 {
         uint256 destinationId,
         bytes memory data
     ) private {
-        if (to == address(0)) revert("ERC721MintToTheZeroAddress()");
-        if (_exists(tokenId)) revert("ERC721TokenAlreadyMinted()");
-        if (tokenId == uint256(0)) revert("IdZeroForbidden()");
+        if (to == address(0)) revert ERC721InvalidReceiver(to);
+        if (_exists(tokenId)) revert("token already exists");
+        if (tokenId == uint256(0)) revert("incorrect token id");
 
         _beforeTokenTransfer(address(0), to, tokenId);
         _beforeNestedTokenTransfer(
@@ -1115,7 +1116,7 @@ abstract contract Nestable is Context, IERC165 , IERC721, IERC7401 {
     function balanceOf(
         address owner
     ) public view virtual returns (uint256 balance) {
-        if (owner == address(0)) revert("ERC721AddressZeroIsNotaValidOwner()");
+        if (owner == address(0)) revert ERC721InvalidOwner(owner);
         balance = _balances[owner];
     }
 
@@ -1131,7 +1132,7 @@ abstract contract Nestable is Context, IERC165 , IERC721, IERC7401 {
         returns (address owner_, uint256 parentId, bool isNFT)
     {
         DirectOwner memory owner = _owners[tokenId];
-        if (owner.ownerAddress == address(0)) revert("ERC721InvalidTokenId()");
+        if (owner.ownerAddress == address(0)) revert ERC721InvalidOwner(owner.ownerAddress);
 
         owner_ = owner.ownerAddress;
         parentId = owner.tokenId;
@@ -1196,7 +1197,7 @@ abstract contract Nestable is Context, IERC165 , IERC721, IERC7401 {
         uint256 index
     ) public view virtual returns (Child memory child) {
         if (childrenOf(parentId).length <= index)
-            revert("ChildIndexOutOfRange()");
+            revert("child index out of range");
         child = _activeChildren[parentId][index];
     }
 
@@ -1208,7 +1209,7 @@ abstract contract Nestable is Context, IERC165 , IERC721, IERC7401 {
         uint256 index
     ) public view virtual returns (Child memory child) {
         if (pendingChildrenOf(parentId).length <= index)
-            revert("PendingChildIndexOutOfRange()");
+            revert("pending child index out of range");
         child = _pendingChildren[parentId][index];
     }
 
@@ -1277,7 +1278,7 @@ abstract contract Nestable is Context, IERC165 , IERC721, IERC7401 {
      * @param tokenId ID of the token to check
      */
     function _requireMinted(uint256 tokenId) internal view virtual {
-        if (!_exists(tokenId)) revert("ERC721InvalidTokenId()");
+        if (!_exists(tokenId)) revert ERC721NonexistentToken(tokenId);
     }
 
     /**
@@ -1299,9 +1300,9 @@ abstract contract Nestable is Context, IERC165 , IERC721, IERC7401 {
      */
     function _checkDestination(address to) internal view {
         // Checking if it is a contract before calling it seems redundant, but otherwise it would revert with no error
-        if (to.code.length == 0) revert("IsNotContract()");
+        if (to.code.length == 0) revert("not a contract address");
         if (!IERC165(to).supportsInterface(type(IERC7401).interfaceId))
-            revert("NestableTransferToNonNestableImplementer()");
+            revert("receiver does not support IERC7401.");
     }
 
     /**
@@ -1312,7 +1313,7 @@ abstract contract Nestable is Context, IERC165 , IERC721, IERC7401 {
      */
     function _onlyApprovedOrOwner(uint256 tokenId) internal view {
         if (!_isApprovedOrOwner(_msgSender(), tokenId))
-            revert ("ERC721NotApprovedOrOwner()");
+            revert ("caller is not owner nor approved");
     }
 
     /**
@@ -1325,7 +1326,7 @@ abstract contract Nestable is Context, IERC165 , IERC721, IERC7401 {
      */
     function _onlyApprovedOrDirectOwner(uint256 tokenId) internal view {
         if (!_isApprovedOrDirectOwner(_msgSender(), tokenId))
-            revert("NotApprovedOrDirectOwner()");
+            revert("caller is not direct owner nor approved");
     }
 
     /**
@@ -1354,7 +1355,7 @@ abstract contract Nestable is Context, IERC165 , IERC721, IERC7401 {
             }
             // Ff the current nft is an ancestor at some point, there is an inheritance loop
             if (nextOwner == address(this) && nextOwnerTokenId == currentId) {
-                revert("NestableTransferToDescendant()");
+                revert("transfer to descendant token is not allowed");
             }
             // We reuse the parameters to save some contract size
             targetContract = nextOwner;
@@ -1363,7 +1364,7 @@ abstract contract Nestable is Context, IERC165 , IERC721, IERC7401 {
                 ++i;
             }
         }
-        revert("NestableTooDeep()");
+        revert("exceeds maximum depth allowed.");
     }
 
     /**
@@ -1385,6 +1386,6 @@ abstract contract Nestable is Context, IERC165 , IERC721, IERC7401 {
         if (
             expectedAddress != child.contractAddress ||
             expectedId != child.tokenId
-        ) revert("UnexpectedChildId()");
+        ) revert("Unexpected child identifier");
     }
 }

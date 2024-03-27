@@ -121,14 +121,14 @@ describe("GameMaster Contract", async function () {
   // Test case for destroying a warrior
   it("Should destroy a warrior", async function () {
     const warriorId = 6;
-    await GameMasterInstance.connect(addr2).destroyWarrior(warriorId);
+    await GameMasterInstance.connect(addr2).sacrificeWarrior(warriorId);
     await expectRevert(
       ArmoredForgeInstance.ownerOf(1),
-      'ERC721InvalidTokenId()',
+      'ERC721InvalidOwner("0x0000000000000000000000000000000000000000")',
     );
     await expectRevert(
       GameMasterInstance.ownerOf(warriorId),
-      'ERC721InvalidTokenId()',
+      'ERC721InvalidOwner("0x0000000000000000000000000000000000000000")',
     );
   });
 });

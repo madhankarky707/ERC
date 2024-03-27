@@ -51,11 +51,11 @@ contract ArmoredForge is Nestable, IERC721Metadata, ERC721URIStorage, AccessCont
      * @dev Sets the URI for a given token ID.
      * Accessible only by users with the OPERATOR_ROLE.
      * @param armorId The ID of the token to set the URI for.
-     * @param _tokenURI The URI to set for the token.
+     * @param _armorURI The URI to set for the token.
      */
-    function setArmorURI(uint256 armorId, string memory _tokenURI) public virtual onlyRole(OPERATOR_ROLE) {
+    function setArmorURI(uint256 armorId, string memory _armorURI) public virtual onlyRole(OPERATOR_ROLE) {
         _requireMinted(armorId);
-        _setTokenURI(armorId, _tokenURI);
+        _setTokenURI(armorId, _armorURI);
     }
 
     /**
