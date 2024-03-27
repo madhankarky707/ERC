@@ -1,4 +1,3 @@
-// import {ethers} from "ethers";
 const { expect } = require("chai");
 
 // Test case for ERC20 token

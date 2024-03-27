@@ -8,7 +8,7 @@ import {ERC721URIStorage} from "./extensions/ERC721URIStorage.sol";
 import {Nestable} from "./nestable/Nestable.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 
-contract ValorWar is AccessControl, Nestable, IERC721Metadata, ERC721URIStorage {
+contract ValorWar is IERC721Metadata, AccessControl, Nestable, ERC721URIStorage {
     bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
     uint256 public constant MAX_ARMOR_TO_CHECK = 100;
 

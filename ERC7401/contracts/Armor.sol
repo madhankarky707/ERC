@@ -8,7 +8,7 @@ import {ERC721URIStorage} from "./extensions/ERC721URIStorage.sol";
 import {Nestable} from "./nestable/Nestable.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 
-contract ArmoredForge is Nestable, IERC721Metadata, ERC721URIStorage, AccessControl {
+contract ArmoredForge is IERC721Metadata, AccessControl, Nestable, ERC721URIStorage {
     bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
 
     // Declaration of private member variable to hold the name of the armors.
