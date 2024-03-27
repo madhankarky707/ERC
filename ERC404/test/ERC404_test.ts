@@ -1,7 +1,6 @@
 // Import necessary modules from Hardhat
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
-const { expectRevert } = require("@openzeppelin/test-helpers");
 
 // Describe the test suite
 describe("Sample404", function () {

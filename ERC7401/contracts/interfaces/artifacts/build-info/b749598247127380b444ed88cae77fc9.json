@@ -1,0 +1,3588 @@
+{
+	"id": "b749598247127380b444ed88cae77fc9",
+	"_format": "hh-sol-build-info-1",
+	"solcVersion": "0.8.24",
+	"solcLongVersion": "0.8.24+commit.e11b9ed9",
+	"input": {
+		"language": "Solidity",
+		"sources": {
+			"contracts/ERC741/interfaces/IERC7401.sol": {
+				"content": "// SPDX-License-Identifier: MIT\n\npragma solidity ^0.8.21;\n\nimport {IERC165} from \"@openzeppelin/contracts/utils/introspection/IERC165.sol\";\n\n/**\n * @title IERC7401\n * @author RMRK team\n * @notice Interface smart contract of the RMRK nestable module.\n */\ninterface IERC7401 is IERC165 {\n    /**\n     * @notice The core struct of RMRK ownership.\n     * @dev The `DirectOwner` struct is used to store information of the next immediate owner, be it the parent token or\n     *  the externally owned account.\n     * @dev If the token is owned by the externally owned account, the `tokenId` should equal `0`.\n     * @param tokenId ID of the parent token\n     * @param ownerAddress Address of the owner of the token. If the owner is another token, then the address should be\n     *  the one of the parent token's collection smart contract. If the owner is externally owned account, the address\n     *  should be the address of this account\n     * @param isNft A boolean value signifying whether the token is owned by another token (`true`) or by an externally\n     *  owned account (`false`)\n     */\n    struct DirectOwner {\n        uint256 tokenId;\n        address ownerAddress;\n    }\n\n    /**\n     * @notice Used to notify listeners that the token is being transferred.\n     * @dev Emitted when `tokenId` token is transferred from `from` to `to`.\n     * @param from Address of the previous immediate owner, which is a smart contract if the token was nested.\n     * @param to Address of the new immediate owner, which is a smart contract if the token is being nested.\n     * @param fromTokenId ID of the previous parent token. If the token was not nested before, the value should be `0`\n     * @param toTokenId ID of the new parent token. If the token is not being nested, the value should be `0`\n     * @param tokenId ID of the token being transferred\n     */\n    event NestTransfer(\n        address indexed from,\n        address indexed to,\n        uint256 fromTokenId,\n        uint256 toTokenId,\n        uint256 indexed tokenId\n    );\n\n    /**\n     * @notice Used to notify listeners that a new token has been added to a given token's pending children array.\n     * @dev Emitted when a child NFT is added to a token's pending array.\n     * @param tokenId ID of the token that received a new pending child token\n     * @param childIndex Index of the proposed child token in the parent token's pending children array\n     * @param childAddress Address of the proposed child token's collection smart contract\n     * @param childId ID of the child token in the child token's collection smart contract\n     */\n    event ChildProposed(\n        uint256 indexed tokenId,\n        uint256 childIndex,\n        address indexed childAddress,\n        uint256 indexed childId\n    );\n\n    /**\n     * @notice Used to notify listeners that a new child token was accepted by the parent token.\n     * @dev Emitted when a parent token accepts a token from its pending array, migrating it to the active array.\n     * @param tokenId ID of the token that accepted a new child token\n     * @param childIndex Index of the newly accepted child token in the parent token's active children array\n     * @param childAddress Address of the child token's collection smart contract\n     * @param childId ID of the child token in the child token's collection smart contract\n     */\n    event ChildAccepted(\n        uint256 indexed tokenId,\n        uint256 childIndex,\n        address indexed childAddress,\n        uint256 indexed childId\n    );\n\n    /**\n     * @notice Used to notify listeners that all pending child tokens of a given token have been rejected.\n     * @dev Emitted when a token removes all a child tokens from its pending array.\n     * @param tokenId ID of the token that rejected all of the pending children\n     */\n    event AllChildrenRejected(uint256 indexed tokenId);\n\n    /**\n     * @notice Used to notify listeners a child token has been transferred from parent token.\n     * @dev Emitted when a token transfers a child from itself, transferring ownership to the root owner.\n     * @param tokenId ID of the token that transferred a child token\n     * @param childIndex Index of a child in the array from which it is being transferred\n     * @param childAddress Address of the child token's collection smart contract\n     * @param childId ID of the child token in the child token's collection smart contract\n     * @param fromPending A boolean value signifying whether the token was in the pending child tokens array (`true`) or\n     *  in the active child tokens array (`false`)\n     * @param toZero A boolean value signifying whether the token is being transferred to the `0x0` address (`true`) or\n     *  not (`false`)\n     */\n    event ChildTransferred(\n        uint256 indexed tokenId,\n        uint256 childIndex,\n        address indexed childAddress,\n        uint256 indexed childId,\n        bool fromPending,\n        bool toZero\n    );\n\n    /**\n     * @notice The core child token struct, holding the information about the child tokens.\n     * @return tokenId ID of the child token in the child token's collection smart contract\n     * @return contractAddress Address of the child token's smart contract\n     */\n    struct Child {\n        uint256 tokenId;\n        address contractAddress;\n    }\n\n    /**\n     * @notice Used to retrieve the *root* owner of a given token.\n     * @dev The *root* owner of the token is an externally owned account (EOA). If the given token is child of another\n     *  NFT, this will return an EOA address. Otherwise, if the token is owned by an EOA, this EOA will be returned.\n     * @param tokenId ID of the token for which the *root* owner has been retrieved\n     * @return owner_ The *root* owner of the token\n     */\n    function ownerOf(uint256 tokenId) external view returns (address owner_);\n\n    /**\n     * @notice Used to retrieve the immediate owner of the given token.\n     * @dev If the immediate owner is another token, the address returned will be the parent token's collection address.\n     * @param tokenId ID of the token for which the RMRK owner is being retrieved\n     * @return owner Address of the given token's owner\n     * @return parentId The ID of the parent token. Should be `0` if the owner is an externally owned account\n     * @return isNFT The boolean value signifying whether the owner is an NFT or not\n     */\n    function directOwnerOf(\n        uint256 tokenId\n    ) external view returns (address owner, uint256 parentId, bool isNFT);\n\n    /**\n     * @notice Used to burn a given token.\n     * @dev When a token is burned, all of its child tokens are recursively burned as well.\n     * @dev When specifying the maximum recursive burns, the execution will be reverted if there are more children to be\n     *  burned.\n     * @dev Setting the `maxRecursiveBurn` value to 0 will only attempt to burn the specified token and revert if there\n     *  are any child tokens present.\n     * @dev The approvals are cleared when the token is burned.\n     * @dev Requirements:\n     *\n     *  - `tokenId` must exist.\n     * @dev Emits a {Transfer} event.\n     * @param tokenId ID of the token to burn\n     * @param maxRecursiveBurns Maximum number of tokens to recursively burn\n     * @return burnedChildren Number of recursively burned children\n     */\n    function burn(\n        uint256 tokenId,\n        uint256 maxRecursiveBurns\n    ) external returns (uint256 burnedChildren);\n\n    /**\n     * @notice Used to add a child token to a given parent token.\n     * @dev This adds the child token into the given parent token's pending child tokens array.\n     * @dev Requirements:\n     *\n     *  - `directOwnerOf` on the child contract must resolve to the called contract.\n     *  - the pending array of the parent contract must not be full.\n     * @param parentId ID of the parent token to receive the new child token\n     * @param childId ID of the new proposed child token\n     * @param data Additional data with no specified format\n     */\n    function addChild(\n        uint256 parentId,\n        uint256 childId,\n        bytes memory data\n    ) external;\n\n    /**\n     * @notice Used to accept a pending child token for a given parent token.\n     * @dev This moves the child token from parent token's pending child tokens array into the active child tokens\n     *  array.\n     * @param parentId ID of the parent token for which the child token is being accepted\n     * @param childIndex Index of a child tokem in the given parent's pending children array\n     * @param childAddress Address of the collection smart contract of the child token expected to be located at the\n     *  specified index of the given parent token's pending children array\n     * @param childId ID of the child token expected to be located at the specified index of the given parent token's\n     *  pending children array\n     */\n    function acceptChild(\n        uint256 parentId,\n        uint256 childIndex,\n        address childAddress,\n        uint256 childId\n    ) external;\n\n    /**\n     * @notice Used to reject all pending children of a given parent token.\n     * @dev Removes the children from the pending array mapping.\n     * @dev This does not update the ownership storage data on children. If necessary, ownership can be reclaimed by the\n     *  rootOwner of the previous parent.\n     * @dev Requirements:\n     *\n     * Requirements:\n     *\n     * - `parentId` must exist\n     * @param parentId ID of the parent token for which to reject all of the pending tokens.\n     * @param maxRejections Maximum number of expected children to reject, used to prevent from rejecting children which\n     *  arrive just before this operation.\n     */\n    function rejectAllChildren(\n        uint256 parentId,\n        uint256 maxRejections\n    ) external;\n\n    /**\n     * @notice Used to transfer a child token from a given parent token.\n     * @dev When transferring a child token, the owner of the token is set to `to`, or is not updated in the event of\n     *  `to` being the `0x0` address.\n     * @param tokenId ID of the parent token from which the child token is being transferred\n     * @param to Address to which to transfer the token to\n     * @param destinationId ID of the token to receive this child token (MUST be 0 if the destination is not a token)\n     * @param childIndex Index of a token we are transferring, in the array it belongs to (can be either active array or\n     *  pending array)\n     * @param childAddress Address of the child token's collection smart contract.\n     * @param childId ID of the child token in its own collection smart contract.\n     * @param isPending A boolean value indicating whether the child token being transferred is in the pending array of\n     *  the parent token (`true`) or in the active array (`false`)\n     * @param data Additional data with no specified format, sent in call to `_to`\n     */\n    function transferChild(\n        uint256 tokenId,\n        address to,\n        uint256 destinationId,\n        uint256 childIndex,\n        address childAddress,\n        uint256 childId,\n        bool isPending,\n        bytes memory data\n    ) external;\n\n    /**\n     * @notice Used to retrieve the active child tokens of a given parent token.\n     * @dev Returns array of Child structs existing for parent token.\n     * @dev The Child struct consists of the following values:\n     *  [\n     *      tokenId,\n     *      contractAddress\n     *  ]\n     * @param parentId ID of the parent token for which to retrieve the active child tokens\n     * @return children An array of Child structs containing the parent token's active child tokens\n     */\n    function childrenOf(\n        uint256 parentId\n    ) external view returns (Child[] memory children);\n\n    /**\n     * @notice Used to retrieve the pending child tokens of a given parent token.\n     * @dev Returns array of pending Child structs existing for given parent.\n     * @dev The Child struct consists of the following values:\n     *  [\n     *      tokenId,\n     *      contractAddress\n     *  ]\n     * @param parentId ID of the parent token for which to retrieve the pending child tokens\n     * @return children An array of Child structs containing the parent token's pending child tokens\n     */\n    function pendingChildrenOf(\n        uint256 parentId\n    ) external view returns (Child[] memory children);\n\n    /**\n     * @notice Used to retrieve a specific active child token for a given parent token.\n     * @dev Returns a single Child struct locating at `index` of parent token's active child tokens array.\n     * @dev The Child struct consists of the following values:\n     *  [\n     *      tokenId,\n     *      contractAddress\n     *  ]\n     * @param parentId ID of the parent token for which the child is being retrieved\n     * @param index Index of the child token in the parent token's active child tokens array\n     * @return child A Child struct containing data about the specified child\n     */\n    function childOf(\n        uint256 parentId,\n        uint256 index\n    ) external view returns (Child memory child);\n\n    /**\n     * @notice Used to retrieve a specific pending child token from a given parent token.\n     * @dev Returns a single Child struct locating at `index` of parent token's active child tokens array.\n     * @dev The Child struct consists of the following values:\n     *  [\n     *      tokenId,\n     *      contractAddress\n     *  ]\n     * @param parentId ID of the parent token for which the pending child token is being retrieved\n     * @param index Index of the child token in the parent token's pending child tokens array\n     * @return child A Child struct containting data about the specified child\n     */\n    function pendingChildOf(\n        uint256 parentId,\n        uint256 index\n    ) external view returns (Child memory child);\n\n    /**\n     * @notice Used to transfer the token into another token.\n     * @param from Address of the direct owner of the token to be transferred\n     * @param to Address of the receiving token's collection smart contract\n     * @param tokenId ID of the token being transferred\n     * @param destinationId ID of the token to receive the token being transferred\n     * @param data Additional data with no specified format, sent in the addChild call\n     */\n    function nestTransferFrom(\n        address from,\n        address to,\n        uint256 tokenId,\n        uint256 destinationId,\n        bytes memory data\n    ) external;\n}"
+			},
+			"@openzeppelin/contracts/utils/introspection/IERC165.sol": {
+				"content": "// SPDX-License-Identifier: MIT\n// OpenZeppelin Contracts (last updated v5.0.0) (utils/introspection/IERC165.sol)\n\npragma solidity ^0.8.20;\n\n/**\n * @dev Interface of the ERC165 standard, as defined in the\n * https://eips.ethereum.org/EIPS/eip-165[EIP].\n *\n * Implementers can declare support of contract interfaces, which can then be\n * queried by others ({ERC165Checker}).\n *\n * For an implementation, see {ERC165}.\n */\ninterface IERC165 {\n    /**\n     * @dev Returns true if this contract implements the interface defined by\n     * `interfaceId`. See the corresponding\n     * https://eips.ethereum.org/EIPS/eip-165#how-interfaces-are-identified[EIP section]\n     * to learn more about how these ids are created.\n     *\n     * This function call must use less than 30 000 gas.\n     */\n    function supportsInterface(bytes4 interfaceId) external view returns (bool);\n}\n"
+			}
+		},
+		"settings": {
+			"optimizer": {
+				"enabled": false,
+				"runs": 200
+			},
+			"outputSelection": {
+				"*": {
+					"": [
+						"ast"
+					],
+					"*": [
+						"abi",
+						"metadata",
+						"devdoc",
+						"userdoc",
+						"storageLayout",
+						"evm.legacyAssembly",
+						"evm.bytecode",
+						"evm.deployedBytecode",
+						"evm.methodIdentifiers",
+						"evm.gasEstimates",
+						"evm.assembly"
+					]
+				}
+			},
+			"remappings": []
+		}
+	},
+	"output": {
+		"contracts": {
+			"@openzeppelin/contracts/utils/introspection/IERC165.sol": {
+				"IERC165": {
+					"abi": [
+						{
+							"inputs": [
+								{
+									"internalType": "bytes4",
+									"name": "interfaceId",
+									"type": "bytes4"
+								}
+							],
+							"name": "supportsInterface",
+							"outputs": [
+								{
+									"internalType": "bool",
+									"name": "",
+									"type": "bool"
+								}
+							],
+							"stateMutability": "view",
+							"type": "function"
+						}
+					],
+					"devdoc": {
+						"details": "Interface of the ERC165 standard, as defined in the https://eips.ethereum.org/EIPS/eip-165[EIP]. Implementers can declare support of contract interfaces, which can then be queried by others ({ERC165Checker}). For an implementation, see {ERC165}.",
+						"kind": "dev",
+						"methods": {
+							"supportsInterface(bytes4)": {
+								"details": "Returns true if this contract implements the interface defined by `interfaceId`. See the corresponding https://eips.ethereum.org/EIPS/eip-165#how-interfaces-are-identified[EIP section] to learn more about how these ids are created. This function call must use less than 30 000 gas."
+							}
+						},
+						"version": 1
+					},
+					"evm": {
+						"assembly": "",
+						"bytecode": {
+							"functionDebugData": {},
+							"generatedSources": [],
+							"linkReferences": {},
+							"object": "",
+							"opcodes": "",
+							"sourceMap": ""
+						},
+						"deployedBytecode": {
+							"functionDebugData": {},
+							"generatedSources": [],
+							"immutableReferences": {},
+							"linkReferences": {},
+							"object": "",
+							"opcodes": "",
+							"sourceMap": ""
+						},
+						"gasEstimates": null,
+						"legacyAssembly": null,
+						"methodIdentifiers": {
+							"supportsInterface(bytes4)": "01ffc9a7"
+						}
+					},
+					"metadata": "{\"compiler\":{\"version\":\"0.8.24+commit.e11b9ed9\"},\"language\":\"Solidity\",\"output\":{\"abi\":[{\"inputs\":[{\"internalType\":\"bytes4\",\"name\":\"interfaceId\",\"type\":\"bytes4\"}],\"name\":\"supportsInterface\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"}],\"devdoc\":{\"details\":\"Interface of the ERC165 standard, as defined in the https://eips.ethereum.org/EIPS/eip-165[EIP]. Implementers can declare support of contract interfaces, which can then be queried by others ({ERC165Checker}). For an implementation, see {ERC165}.\",\"kind\":\"dev\",\"methods\":{\"supportsInterface(bytes4)\":{\"details\":\"Returns true if this contract implements the interface defined by `interfaceId`. See the corresponding https://eips.ethereum.org/EIPS/eip-165#how-interfaces-are-identified[EIP section] to learn more about how these ids are created. This function call must use less than 30 000 gas.\"}},\"version\":1},\"userdoc\":{\"kind\":\"user\",\"methods\":{},\"version\":1}},\"settings\":{\"compilationTarget\":{\"@openzeppelin/contracts/utils/introspection/IERC165.sol\":\"IERC165\"},\"evmVersion\":\"shanghai\",\"libraries\":{},\"metadata\":{\"bytecodeHash\":\"ipfs\"},\"optimizer\":{\"enabled\":false,\"runs\":200},\"remappings\":[]},\"sources\":{\"@openzeppelin/contracts/utils/introspection/IERC165.sol\":{\"keccak256\":\"0x4296879f55019b23e135000eb36896057e7101fb7fb859c5ef690cf14643757b\",\"license\":\"MIT\",\"urls\":[\"bzz-raw://87b3541437c8c443ccd36795e56a338ed12855eec17f8da624511b8d1a7e14df\",\"dweb:/ipfs/QmeJQCtZrQjtJLr6u7ZHWeH3pBnjtLWzvRrKViAi7UZqxL\"]}},\"version\":1}",
+					"storageLayout": {
+						"storage": [],
+						"types": null
+					},
+					"userdoc": {
+						"kind": "user",
+						"methods": {},
+						"version": 1
+					}
+				}
+			},
+			"contracts/ERC741/interfaces/IERC7401.sol": {
+				"IERC7401": {
+					"abi": [
+						{
+							"anonymous": false,
+							"inputs": [
+								{
+									"indexed": true,
+									"internalType": "uint256",
+									"name": "tokenId",
+									"type": "uint256"
+								}
+							],
+							"name": "AllChildrenRejected",
+							"type": "event"
+						},
+						{
+							"anonymous": false,
+							"inputs": [
+								{
+									"indexed": true,
+									"internalType": "uint256",
+									"name": "tokenId",
+									"type": "uint256"
+								},
+								{
+									"indexed": false,
+									"internalType": "uint256",
+									"name": "childIndex",
+									"type": "uint256"
+								},
+								{
+									"indexed": true,
+									"internalType": "address",
+									"name": "childAddress",
+									"type": "address"
+								},
+								{
+									"indexed": true,
+									"internalType": "uint256",
+									"name": "childId",
+									"type": "uint256"
+								}
+							],
+							"name": "ChildAccepted",
+							"type": "event"
+						},
+						{
+							"anonymous": false,
+							"inputs": [
+								{
+									"indexed": true,
+									"internalType": "uint256",
+									"name": "tokenId",
+									"type": "uint256"
+								},
+								{
+									"indexed": false,
+									"internalType": "uint256",
+									"name": "childIndex",
+									"type": "uint256"
+								},
+								{
+									"indexed": true,
+									"internalType": "address",
+									"name": "childAddress",
+									"type": "address"
+								},
+								{
+									"indexed": true,
+									"internalType": "uint256",
+									"name": "childId",
+									"type": "uint256"
+								}
+							],
+							"name": "ChildProposed",
+							"type": "event"
+						},
+						{
+							"anonymous": false,
+							"inputs": [
+								{
+									"indexed": true,
+									"internalType": "uint256",
+									"name": "tokenId",
+									"type": "uint256"
+								},
+								{
+									"indexed": false,
+									"internalType": "uint256",
+									"name": "childIndex",
+									"type": "uint256"
+								},
+								{
+									"indexed": true,
+									"internalType": "address",
+									"name": "childAddress",
+									"type": "address"
+								},
+								{
+									"indexed": true,
+									"internalType": "uint256",
+									"name": "childId",
+									"type": "uint256"
+								},
+								{
+									"indexed": false,
+									"internalType": "bool",
+									"name": "fromPending",
+									"type": "bool"
+								},
+								{
+									"indexed": false,
+									"internalType": "bool",
+									"name": "toZero",
+									"type": "bool"
+								}
+							],
+							"name": "ChildTransferred",
+							"type": "event"
+						},
+						{
+							"anonymous": false,
+							"inputs": [
+								{
+									"indexed": true,
+									"internalType": "address",
+									"name": "from",
+									"type": "address"
+								},
+								{
+									"indexed": true,
+									"internalType": "address",
+									"name": "to",
+									"type": "address"
+								},
+								{
+									"indexed": false,
+									"internalType": "uint256",
+									"name": "fromTokenId",
+									"type": "uint256"
+								},
+								{
+									"indexed": false,
+									"internalType": "uint256",
+									"name": "toTokenId",
+									"type": "uint256"
+								},
+								{
+									"indexed": true,
+									"internalType": "uint256",
+									"name": "tokenId",
+									"type": "uint256"
+								}
+							],
+							"name": "NestTransfer",
+							"type": "event"
+						},
+						{
+							"inputs": [
+								{
+									"internalType": "uint256",
+									"name": "parentId",
+									"type": "uint256"
+								},
+								{
+									"internalType": "uint256",
+									"name": "childIndex",
+									"type": "uint256"
+								},
+								{
+									"internalType": "address",
+									"name": "childAddress",
+									"type": "address"
+								},
+								{
+									"internalType": "uint256",
+									"name": "childId",
+									"type": "uint256"
+								}
+							],
+							"name": "acceptChild",
+							"outputs": [],
+							"stateMutability": "nonpayable",
+							"type": "function"
+						},
+						{
+							"inputs": [
+								{
+									"internalType": "uint256",
+									"name": "parentId",
+									"type": "uint256"
+								},
+								{
+									"internalType": "uint256",
+									"name": "childId",
+									"type": "uint256"
+								},
+								{
+									"internalType": "bytes",
+									"name": "data",
+									"type": "bytes"
+								}
+							],
+							"name": "addChild",
+							"outputs": [],
+							"stateMutability": "nonpayable",
+							"type": "function"
+						},
+						{
+							"inputs": [
+								{
+									"internalType": "uint256",
+									"name": "tokenId",
+									"type": "uint256"
+								},
+								{
+									"internalType": "uint256",
+									"name": "maxRecursiveBurns",
+									"type": "uint256"
+								}
+							],
+							"name": "burn",
+							"outputs": [
+								{
+									"internalType": "uint256",
+									"name": "burnedChildren",
+									"type": "uint256"
+								}
+							],
+							"stateMutability": "nonpayable",
+							"type": "function"
+						},
+						{
+							"inputs": [
+								{
+									"internalType": "uint256",
+									"name": "parentId",
+									"type": "uint256"
+								},
+								{
+									"internalType": "uint256",
+									"name": "index",
+									"type": "uint256"
+								}
+							],
+							"name": "childOf",
+							"outputs": [
+								{
+									"components": [
+										{
+											"internalType": "uint256",
+											"name": "tokenId",
+											"type": "uint256"
+										},
+										{
+											"internalType": "address",
+											"name": "contractAddress",
+											"type": "address"
+										}
+									],
+									"internalType": "struct IERC7401.Child",
+									"name": "child",
+									"type": "tuple"
+								}
+							],
+							"stateMutability": "view",
+							"type": "function"
+						},
+						{
+							"inputs": [
+								{
+									"internalType": "uint256",
+									"name": "parentId",
+									"type": "uint256"
+								}
+							],
+							"name": "childrenOf",
+							"outputs": [
+								{
+									"components": [
+										{
+											"internalType": "uint256",
+											"name": "tokenId",
+											"type": "uint256"
+										},
+										{
+											"internalType": "address",
+											"name": "contractAddress",
+											"type": "address"
+										}
+									],
+									"internalType": "struct IERC7401.Child[]",
+									"name": "children",
+									"type": "tuple[]"
+								}
+							],
+							"stateMutability": "view",
+							"type": "function"
+						},
+						{
+							"inputs": [
+								{
+									"internalType": "uint256",
+									"name": "tokenId",
+									"type": "uint256"
+								}
+							],
+							"name": "directOwnerOf",
+							"outputs": [
+								{
+									"internalType": "address",
+									"name": "owner",
+									"type": "address"
+								},
+								{
+									"internalType": "uint256",
+									"name": "parentId",
+									"type": "uint256"
+								},
+								{
+									"internalType": "bool",
+									"name": "isNFT",
+									"type": "bool"
+								}
+							],
+							"stateMutability": "view",
+							"type": "function"
+						},
+						{
+							"inputs": [
+								{
+									"internalType": "address",
+									"name": "from",
+									"type": "address"
+								},
+								{
+									"internalType": "address",
+									"name": "to",
+									"type": "address"
+								},
+								{
+									"internalType": "uint256",
+									"name": "tokenId",
+									"type": "uint256"
+								},
+								{
+									"internalType": "uint256",
+									"name": "destinationId",
+									"type": "uint256"
+								},
+								{
+									"internalType": "bytes",
+									"name": "data",
+									"type": "bytes"
+								}
+							],
+							"name": "nestTransferFrom",
+							"outputs": [],
+							"stateMutability": "nonpayable",
+							"type": "function"
+						},
+						{
+							"inputs": [
+								{
+									"internalType": "uint256",
+									"name": "tokenId",
+									"type": "uint256"
+								}
+							],
+							"name": "ownerOf",
+							"outputs": [
+								{
+									"internalType": "address",
+									"name": "owner_",
+									"type": "address"
+								}
+							],
+							"stateMutability": "view",
+							"type": "function"
+						},
+						{
+							"inputs": [
+								{
+									"internalType": "uint256",
+									"name": "parentId",
+									"type": "uint256"
+								},
+								{
+									"internalType": "uint256",
+									"name": "index",
+									"type": "uint256"
+								}
+							],
+							"name": "pendingChildOf",
+							"outputs": [
+								{
+									"components": [
+										{
+											"internalType": "uint256",
+											"name": "tokenId",
+											"type": "uint256"
+										},
+										{
+											"internalType": "address",
+											"name": "contractAddress",
+											"type": "address"
+										}
+									],
+									"internalType": "struct IERC7401.Child",
+									"name": "child",
+									"type": "tuple"
+								}
+							],
+							"stateMutability": "view",
+							"type": "function"
+						},
+						{
+							"inputs": [
+								{
+									"internalType": "uint256",
+									"name": "parentId",
+									"type": "uint256"
+								}
+							],
+							"name": "pendingChildrenOf",
+							"outputs": [
+								{
+									"components": [
+										{
+											"internalType": "uint256",
+											"name": "tokenId",
+											"type": "uint256"
+										},
+										{
+											"internalType": "address",
+											"name": "contractAddress",
+											"type": "address"
+										}
+									],
+									"internalType": "struct IERC7401.Child[]",
+									"name": "children",
+									"type": "tuple[]"
+								}
+							],
+							"stateMutability": "view",
+							"type": "function"
+						},
+						{
+							"inputs": [
+								{
+									"internalType": "uint256",
+									"name": "parentId",
+									"type": "uint256"
+								},
+								{
+									"internalType": "uint256",
+									"name": "maxRejections",
+									"type": "uint256"
+								}
+							],
+							"name": "rejectAllChildren",
+							"outputs": [],
+							"stateMutability": "nonpayable",
+							"type": "function"
+						},
+						{
+							"inputs": [
+								{
+									"internalType": "bytes4",
+									"name": "interfaceId",
+									"type": "bytes4"
+								}
+							],
+							"name": "supportsInterface",
+							"outputs": [
+								{
+									"internalType": "bool",
+									"name": "",
+									"type": "bool"
+								}
+							],
+							"stateMutability": "view",
+							"type": "function"
+						},
+						{
+							"inputs": [
+								{
+									"internalType": "uint256",
+									"name": "tokenId",
+									"type": "uint256"
+								},
+								{
+									"internalType": "address",
+									"name": "to",
+									"type": "address"
+								},
+								{
+									"internalType": "uint256",
+									"name": "destinationId",
+									"type": "uint256"
+								},
+								{
+									"internalType": "uint256",
+									"name": "childIndex",
+									"type": "uint256"
+								},
+								{
+									"internalType": "address",
+									"name": "childAddress",
+									"type": "address"
+								},
+								{
+									"internalType": "uint256",
+									"name": "childId",
+									"type": "uint256"
+								},
+								{
+									"internalType": "bool",
+									"name": "isPending",
+									"type": "bool"
+								},
+								{
+									"internalType": "bytes",
+									"name": "data",
+									"type": "bytes"
+								}
+							],
+							"name": "transferChild",
+							"outputs": [],
+							"stateMutability": "nonpayable",
+							"type": "function"
+						}
+					],
+					"devdoc": {
+						"author": "RMRK team",
+						"events": {
+							"AllChildrenRejected(uint256)": {
+								"details": "Emitted when a token removes all a child tokens from its pending array.",
+								"params": {
+									"tokenId": "ID of the token that rejected all of the pending children"
+								}
+							},
+							"ChildAccepted(uint256,uint256,address,uint256)": {
+								"details": "Emitted when a parent token accepts a token from its pending array, migrating it to the active array.",
+								"params": {
+									"childAddress": "Address of the child token's collection smart contract",
+									"childId": "ID of the child token in the child token's collection smart contract",
+									"childIndex": "Index of the newly accepted child token in the parent token's active children array",
+									"tokenId": "ID of the token that accepted a new child token"
+								}
+							},
+							"ChildProposed(uint256,uint256,address,uint256)": {
+								"details": "Emitted when a child NFT is added to a token's pending array.",
+								"params": {
+									"childAddress": "Address of the proposed child token's collection smart contract",
+									"childId": "ID of the child token in the child token's collection smart contract",
+									"childIndex": "Index of the proposed child token in the parent token's pending children array",
+									"tokenId": "ID of the token that received a new pending child token"
+								}
+							},
+							"ChildTransferred(uint256,uint256,address,uint256,bool,bool)": {
+								"details": "Emitted when a token transfers a child from itself, transferring ownership to the root owner.",
+								"params": {
+									"childAddress": "Address of the child token's collection smart contract",
+									"childId": "ID of the child token in the child token's collection smart contract",
+									"childIndex": "Index of a child in the array from which it is being transferred",
+									"fromPending": "A boolean value signifying whether the token was in the pending child tokens array (`true`) or  in the active child tokens array (`false`)",
+									"toZero": "A boolean value signifying whether the token is being transferred to the `0x0` address (`true`) or  not (`false`)",
+									"tokenId": "ID of the token that transferred a child token"
+								}
+							},
+							"NestTransfer(address,address,uint256,uint256,uint256)": {
+								"details": "Emitted when `tokenId` token is transferred from `from` to `to`.",
+								"params": {
+									"from": "Address of the previous immediate owner, which is a smart contract if the token was nested.",
+									"fromTokenId": "ID of the previous parent token. If the token was not nested before, the value should be `0`",
+									"to": "Address of the new immediate owner, which is a smart contract if the token is being nested.",
+									"toTokenId": "ID of the new parent token. If the token is not being nested, the value should be `0`",
+									"tokenId": "ID of the token being transferred"
+								}
+							}
+						},
+						"kind": "dev",
+						"methods": {
+							"acceptChild(uint256,uint256,address,uint256)": {
+								"details": "This moves the child token from parent token's pending child tokens array into the active child tokens  array.",
+								"params": {
+									"childAddress": "Address of the collection smart contract of the child token expected to be located at the  specified index of the given parent token's pending children array",
+									"childId": "ID of the child token expected to be located at the specified index of the given parent token's  pending children array",
+									"childIndex": "Index of a child tokem in the given parent's pending children array",
+									"parentId": "ID of the parent token for which the child token is being accepted"
+								}
+							},
+							"addChild(uint256,uint256,bytes)": {
+								"details": "This adds the child token into the given parent token's pending child tokens array.Requirements:  - `directOwnerOf` on the child contract must resolve to the called contract.  - the pending array of the parent contract must not be full.",
+								"params": {
+									"childId": "ID of the new proposed child token",
+									"data": "Additional data with no specified format",
+									"parentId": "ID of the parent token to receive the new child token"
+								}
+							},
+							"burn(uint256,uint256)": {
+								"details": "When a token is burned, all of its child tokens are recursively burned as well.When specifying the maximum recursive burns, the execution will be reverted if there are more children to be  burned.Setting the `maxRecursiveBurn` value to 0 will only attempt to burn the specified token and revert if there  are any child tokens present.The approvals are cleared when the token is burned.Requirements:  - `tokenId` must exist.Emits a {Transfer} event.",
+								"params": {
+									"maxRecursiveBurns": "Maximum number of tokens to recursively burn",
+									"tokenId": "ID of the token to burn"
+								},
+								"returns": {
+									"burnedChildren": "Number of recursively burned children"
+								}
+							},
+							"childOf(uint256,uint256)": {
+								"details": "Returns a single Child struct locating at `index` of parent token's active child tokens array.The Child struct consists of the following values:  [      tokenId,      contractAddress  ]",
+								"params": {
+									"index": "Index of the child token in the parent token's active child tokens array",
+									"parentId": "ID of the parent token for which the child is being retrieved"
+								},
+								"returns": {
+									"child": "A Child struct containing data about the specified child"
+								}
+							},
+							"childrenOf(uint256)": {
+								"details": "Returns array of Child structs existing for parent token.The Child struct consists of the following values:  [      tokenId,      contractAddress  ]",
+								"params": {
+									"parentId": "ID of the parent token for which to retrieve the active child tokens"
+								},
+								"returns": {
+									"children": "An array of Child structs containing the parent token's active child tokens"
+								}
+							},
+							"directOwnerOf(uint256)": {
+								"details": "If the immediate owner is another token, the address returned will be the parent token's collection address.",
+								"params": {
+									"tokenId": "ID of the token for which the RMRK owner is being retrieved"
+								},
+								"returns": {
+									"isNFT": "The boolean value signifying whether the owner is an NFT or not",
+									"owner": "Address of the given token's owner",
+									"parentId": "The ID of the parent token. Should be `0` if the owner is an externally owned account"
+								}
+							},
+							"nestTransferFrom(address,address,uint256,uint256,bytes)": {
+								"params": {
+									"data": "Additional data with no specified format, sent in the addChild call",
+									"destinationId": "ID of the token to receive the token being transferred",
+									"from": "Address of the direct owner of the token to be transferred",
+									"to": "Address of the receiving token's collection smart contract",
+									"tokenId": "ID of the token being transferred"
+								}
+							},
+							"ownerOf(uint256)": {
+								"details": "The *root* owner of the token is an externally owned account (EOA). If the given token is child of another  NFT, this will return an EOA address. Otherwise, if the token is owned by an EOA, this EOA will be returned.",
+								"params": {
+									"tokenId": "ID of the token for which the *root* owner has been retrieved"
+								},
+								"returns": {
+									"owner_": "The *root* owner of the token"
+								}
+							},
+							"pendingChildOf(uint256,uint256)": {
+								"details": "Returns a single Child struct locating at `index` of parent token's active child tokens array.The Child struct consists of the following values:  [      tokenId,      contractAddress  ]",
+								"params": {
+									"index": "Index of the child token in the parent token's pending child tokens array",
+									"parentId": "ID of the parent token for which the pending child token is being retrieved"
+								},
+								"returns": {
+									"child": "A Child struct containting data about the specified child"
+								}
+							},
+							"pendingChildrenOf(uint256)": {
+								"details": "Returns array of pending Child structs existing for given parent.The Child struct consists of the following values:  [      tokenId,      contractAddress  ]",
+								"params": {
+									"parentId": "ID of the parent token for which to retrieve the pending child tokens"
+								},
+								"returns": {
+									"children": "An array of Child structs containing the parent token's pending child tokens"
+								}
+							},
+							"rejectAllChildren(uint256,uint256)": {
+								"details": "Removes the children from the pending array mapping.This does not update the ownership storage data on children. If necessary, ownership can be reclaimed by the  rootOwner of the previous parent.Requirements: Requirements: - `parentId` must exist",
+								"params": {
+									"maxRejections": "Maximum number of expected children to reject, used to prevent from rejecting children which  arrive just before this operation.",
+									"parentId": "ID of the parent token for which to reject all of the pending tokens."
+								}
+							},
+							"supportsInterface(bytes4)": {
+								"details": "Returns true if this contract implements the interface defined by `interfaceId`. See the corresponding https://eips.ethereum.org/EIPS/eip-165#how-interfaces-are-identified[EIP section] to learn more about how these ids are created. This function call must use less than 30 000 gas."
+							},
+							"transferChild(uint256,address,uint256,uint256,address,uint256,bool,bytes)": {
+								"details": "When transferring a child token, the owner of the token is set to `to`, or is not updated in the event of  `to` being the `0x0` address.",
+								"params": {
+									"childAddress": "Address of the child token's collection smart contract.",
+									"childId": "ID of the child token in its own collection smart contract.",
+									"childIndex": "Index of a token we are transferring, in the array it belongs to (can be either active array or  pending array)",
+									"data": "Additional data with no specified format, sent in call to `_to`",
+									"destinationId": "ID of the token to receive this child token (MUST be 0 if the destination is not a token)",
+									"isPending": "A boolean value indicating whether the child token being transferred is in the pending array of  the parent token (`true`) or in the active array (`false`)",
+									"to": "Address to which to transfer the token to",
+									"tokenId": "ID of the parent token from which the child token is being transferred"
+								}
+							}
+						},
+						"title": "IERC7401",
+						"version": 1
+					},
+					"evm": {
+						"assembly": "",
+						"bytecode": {
+							"functionDebugData": {},
+							"generatedSources": [],
+							"linkReferences": {},
+							"object": "",
+							"opcodes": "",
+							"sourceMap": ""
+						},
+						"deployedBytecode": {
+							"functionDebugData": {},
+							"generatedSources": [],
+							"immutableReferences": {},
+							"linkReferences": {},
+							"object": "",
+							"opcodes": "",
+							"sourceMap": ""
+						},
+						"gasEstimates": null,
+						"legacyAssembly": null,
+						"methodIdentifiers": {
+							"acceptChild(uint256,uint256,address,uint256)": "e97ceaa8",
+							"addChild(uint256,uint256,bytes)": "635490cc",
+							"burn(uint256,uint256)": "b390c0ab",
+							"childOf(uint256,uint256)": "2f32f937",
+							"childrenOf(uint256)": "6f19951c",
+							"directOwnerOf(uint256)": "fb25fb7a",
+							"nestTransferFrom(address,address,uint256,uint256,bytes)": "064c0a3a",
+							"ownerOf(uint256)": "6352211e",
+							"pendingChildOf(uint256,uint256)": "a898e364",
+							"pendingChildrenOf(uint256)": "44ec9344",
+							"rejectAllChildren(uint256,uint256)": "97961336",
+							"supportsInterface(bytes4)": "01ffc9a7",
+							"transferChild(uint256,address,uint256,uint256,address,uint256,bool,bytes)": "defa80c3"
+						}
+					},
+					"metadata": "{\"compiler\":{\"version\":\"0.8.24+commit.e11b9ed9\"},\"language\":\"Solidity\",\"output\":{\"abi\":[{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"tokenId\",\"type\":\"uint256\"}],\"name\":\"AllChildrenRejected\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"tokenId\",\"type\":\"uint256\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"childIndex\",\"type\":\"uint256\"},{\"indexed\":true,\"internalType\":\"address\",\"name\":\"childAddress\",\"type\":\"address\"},{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"childId\",\"type\":\"uint256\"}],\"name\":\"ChildAccepted\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"tokenId\",\"type\":\"uint256\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"childIndex\",\"type\":\"uint256\"},{\"indexed\":true,\"internalType\":\"address\",\"name\":\"childAddress\",\"type\":\"address\"},{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"childId\",\"type\":\"uint256\"}],\"name\":\"ChildProposed\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"tokenId\",\"type\":\"uint256\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"childIndex\",\"type\":\"uint256\"},{\"indexed\":true,\"internalType\":\"address\",\"name\":\"childAddress\",\"type\":\"address\"},{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"childId\",\"type\":\"uint256\"},{\"indexed\":false,\"internalType\":\"bool\",\"name\":\"fromPending\",\"type\":\"bool\"},{\"indexed\":false,\"internalType\":\"bool\",\"name\":\"toZero\",\"type\":\"bool\"}],\"name\":\"ChildTransferred\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"address\",\"name\":\"from\",\"type\":\"address\"},{\"indexed\":true,\"internalType\":\"address\",\"name\":\"to\",\"type\":\"address\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"fromTokenId\",\"type\":\"uint256\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"toTokenId\",\"type\":\"uint256\"},{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"tokenId\",\"type\":\"uint256\"}],\"name\":\"NestTransfer\",\"type\":\"event\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"parentId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"childIndex\",\"type\":\"uint256\"},{\"internalType\":\"address\",\"name\":\"childAddress\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"childId\",\"type\":\"uint256\"}],\"name\":\"acceptChild\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"parentId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"childId\",\"type\":\"uint256\"},{\"internalType\":\"bytes\",\"name\":\"data\",\"type\":\"bytes\"}],\"name\":\"addChild\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"tokenId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"maxRecursiveBurns\",\"type\":\"uint256\"}],\"name\":\"burn\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"burnedChildren\",\"type\":\"uint256\"}],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"parentId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"index\",\"type\":\"uint256\"}],\"name\":\"childOf\",\"outputs\":[{\"components\":[{\"internalType\":\"uint256\",\"name\":\"tokenId\",\"type\":\"uint256\"},{\"internalType\":\"address\",\"name\":\"contractAddress\",\"type\":\"address\"}],\"internalType\":\"struct IERC7401.Child\",\"name\":\"child\",\"type\":\"tuple\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"parentId\",\"type\":\"uint256\"}],\"name\":\"childrenOf\",\"outputs\":[{\"components\":[{\"internalType\":\"uint256\",\"name\":\"tokenId\",\"type\":\"uint256\"},{\"internalType\":\"address\",\"name\":\"contractAddress\",\"type\":\"address\"}],\"internalType\":\"struct IERC7401.Child[]\",\"name\":\"children\",\"type\":\"tuple[]\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"tokenId\",\"type\":\"uint256\"}],\"name\":\"directOwnerOf\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"owner\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"parentId\",\"type\":\"uint256\"},{\"internalType\":\"bool\",\"name\":\"isNFT\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"from\",\"type\":\"address\"},{\"internalType\":\"address\",\"name\":\"to\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"tokenId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"destinationId\",\"type\":\"uint256\"},{\"internalType\":\"bytes\",\"name\":\"data\",\"type\":\"bytes\"}],\"name\":\"nestTransferFrom\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"tokenId\",\"type\":\"uint256\"}],\"name\":\"ownerOf\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"owner_\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"parentId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"index\",\"type\":\"uint256\"}],\"name\":\"pendingChildOf\",\"outputs\":[{\"components\":[{\"internalType\":\"uint256\",\"name\":\"tokenId\",\"type\":\"uint256\"},{\"internalType\":\"address\",\"name\":\"contractAddress\",\"type\":\"address\"}],\"internalType\":\"struct IERC7401.Child\",\"name\":\"child\",\"type\":\"tuple\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"parentId\",\"type\":\"uint256\"}],\"name\":\"pendingChildrenOf\",\"outputs\":[{\"components\":[{\"internalType\":\"uint256\",\"name\":\"tokenId\",\"type\":\"uint256\"},{\"internalType\":\"address\",\"name\":\"contractAddress\",\"type\":\"address\"}],\"internalType\":\"struct IERC7401.Child[]\",\"name\":\"children\",\"type\":\"tuple[]\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"parentId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"maxRejections\",\"type\":\"uint256\"}],\"name\":\"rejectAllChildren\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes4\",\"name\":\"interfaceId\",\"type\":\"bytes4\"}],\"name\":\"supportsInterface\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"tokenId\",\"type\":\"uint256\"},{\"internalType\":\"address\",\"name\":\"to\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"destinationId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"childIndex\",\"type\":\"uint256\"},{\"internalType\":\"address\",\"name\":\"childAddress\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"childId\",\"type\":\"uint256\"},{\"internalType\":\"bool\",\"name\":\"isPending\",\"type\":\"bool\"},{\"internalType\":\"bytes\",\"name\":\"data\",\"type\":\"bytes\"}],\"name\":\"transferChild\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"}],\"devdoc\":{\"author\":\"RMRK team\",\"events\":{\"AllChildrenRejected(uint256)\":{\"details\":\"Emitted when a token removes all a child tokens from its pending array.\",\"params\":{\"tokenId\":\"ID of the token that rejected all of the pending children\"}},\"ChildAccepted(uint256,uint256,address,uint256)\":{\"details\":\"Emitted when a parent token accepts a token from its pending array, migrating it to the active array.\",\"params\":{\"childAddress\":\"Address of the child token's collection smart contract\",\"childId\":\"ID of the child token in the child token's collection smart contract\",\"childIndex\":\"Index of the newly accepted child token in the parent token's active children array\",\"tokenId\":\"ID of the token that accepted a new child token\"}},\"ChildProposed(uint256,uint256,address,uint256)\":{\"details\":\"Emitted when a child NFT is added to a token's pending array.\",\"params\":{\"childAddress\":\"Address of the proposed child token's collection smart contract\",\"childId\":\"ID of the child token in the child token's collection smart contract\",\"childIndex\":\"Index of the proposed child token in the parent token's pending children array\",\"tokenId\":\"ID of the token that received a new pending child token\"}},\"ChildTransferred(uint256,uint256,address,uint256,bool,bool)\":{\"details\":\"Emitted when a token transfers a child from itself, transferring ownership to the root owner.\",\"params\":{\"childAddress\":\"Address of the child token's collection smart contract\",\"childId\":\"ID of the child token in the child token's collection smart contract\",\"childIndex\":\"Index of a child in the array from which it is being transferred\",\"fromPending\":\"A boolean value signifying whether the token was in the pending child tokens array (`true`) or  in the active child tokens array (`false`)\",\"toZero\":\"A boolean value signifying whether the token is being transferred to the `0x0` address (`true`) or  not (`false`)\",\"tokenId\":\"ID of the token that transferred a child token\"}},\"NestTransfer(address,address,uint256,uint256,uint256)\":{\"details\":\"Emitted when `tokenId` token is transferred from `from` to `to`.\",\"params\":{\"from\":\"Address of the previous immediate owner, which is a smart contract if the token was nested.\",\"fromTokenId\":\"ID of the previous parent token. If the token was not nested before, the value should be `0`\",\"to\":\"Address of the new immediate owner, which is a smart contract if the token is being nested.\",\"toTokenId\":\"ID of the new parent token. If the token is not being nested, the value should be `0`\",\"tokenId\":\"ID of the token being transferred\"}}},\"kind\":\"dev\",\"methods\":{\"acceptChild(uint256,uint256,address,uint256)\":{\"details\":\"This moves the child token from parent token's pending child tokens array into the active child tokens  array.\",\"params\":{\"childAddress\":\"Address of the collection smart contract of the child token expected to be located at the  specified index of the given parent token's pending children array\",\"childId\":\"ID of the child token expected to be located at the specified index of the given parent token's  pending children array\",\"childIndex\":\"Index of a child tokem in the given parent's pending children array\",\"parentId\":\"ID of the parent token for which the child token is being accepted\"}},\"addChild(uint256,uint256,bytes)\":{\"details\":\"This adds the child token into the given parent token's pending child tokens array.Requirements:  - `directOwnerOf` on the child contract must resolve to the called contract.  - the pending array of the parent contract must not be full.\",\"params\":{\"childId\":\"ID of the new proposed child token\",\"data\":\"Additional data with no specified format\",\"parentId\":\"ID of the parent token to receive the new child token\"}},\"burn(uint256,uint256)\":{\"details\":\"When a token is burned, all of its child tokens are recursively burned as well.When specifying the maximum recursive burns, the execution will be reverted if there are more children to be  burned.Setting the `maxRecursiveBurn` value to 0 will only attempt to burn the specified token and revert if there  are any child tokens present.The approvals are cleared when the token is burned.Requirements:  - `tokenId` must exist.Emits a {Transfer} event.\",\"params\":{\"maxRecursiveBurns\":\"Maximum number of tokens to recursively burn\",\"tokenId\":\"ID of the token to burn\"},\"returns\":{\"burnedChildren\":\"Number of recursively burned children\"}},\"childOf(uint256,uint256)\":{\"details\":\"Returns a single Child struct locating at `index` of parent token's active child tokens array.The Child struct consists of the following values:  [      tokenId,      contractAddress  ]\",\"params\":{\"index\":\"Index of the child token in the parent token's active child tokens array\",\"parentId\":\"ID of the parent token for which the child is being retrieved\"},\"returns\":{\"child\":\"A Child struct containing data about the specified child\"}},\"childrenOf(uint256)\":{\"details\":\"Returns array of Child structs existing for parent token.The Child struct consists of the following values:  [      tokenId,      contractAddress  ]\",\"params\":{\"parentId\":\"ID of the parent token for which to retrieve the active child tokens\"},\"returns\":{\"children\":\"An array of Child structs containing the parent token's active child tokens\"}},\"directOwnerOf(uint256)\":{\"details\":\"If the immediate owner is another token, the address returned will be the parent token's collection address.\",\"params\":{\"tokenId\":\"ID of the token for which the RMRK owner is being retrieved\"},\"returns\":{\"isNFT\":\"The boolean value signifying whether the owner is an NFT or not\",\"owner\":\"Address of the given token's owner\",\"parentId\":\"The ID of the parent token. Should be `0` if the owner is an externally owned account\"}},\"nestTransferFrom(address,address,uint256,uint256,bytes)\":{\"params\":{\"data\":\"Additional data with no specified format, sent in the addChild call\",\"destinationId\":\"ID of the token to receive the token being transferred\",\"from\":\"Address of the direct owner of the token to be transferred\",\"to\":\"Address of the receiving token's collection smart contract\",\"tokenId\":\"ID of the token being transferred\"}},\"ownerOf(uint256)\":{\"details\":\"The *root* owner of the token is an externally owned account (EOA). If the given token is child of another  NFT, this will return an EOA address. Otherwise, if the token is owned by an EOA, this EOA will be returned.\",\"params\":{\"tokenId\":\"ID of the token for which the *root* owner has been retrieved\"},\"returns\":{\"owner_\":\"The *root* owner of the token\"}},\"pendingChildOf(uint256,uint256)\":{\"details\":\"Returns a single Child struct locating at `index` of parent token's active child tokens array.The Child struct consists of the following values:  [      tokenId,      contractAddress  ]\",\"params\":{\"index\":\"Index of the child token in the parent token's pending child tokens array\",\"parentId\":\"ID of the parent token for which the pending child token is being retrieved\"},\"returns\":{\"child\":\"A Child struct containting data about the specified child\"}},\"pendingChildrenOf(uint256)\":{\"details\":\"Returns array of pending Child structs existing for given parent.The Child struct consists of the following values:  [      tokenId,      contractAddress  ]\",\"params\":{\"parentId\":\"ID of the parent token for which to retrieve the pending child tokens\"},\"returns\":{\"children\":\"An array of Child structs containing the parent token's pending child tokens\"}},\"rejectAllChildren(uint256,uint256)\":{\"details\":\"Removes the children from the pending array mapping.This does not update the ownership storage data on children. If necessary, ownership can be reclaimed by the  rootOwner of the previous parent.Requirements: Requirements: - `parentId` must exist\",\"params\":{\"maxRejections\":\"Maximum number of expected children to reject, used to prevent from rejecting children which  arrive just before this operation.\",\"parentId\":\"ID of the parent token for which to reject all of the pending tokens.\"}},\"supportsInterface(bytes4)\":{\"details\":\"Returns true if this contract implements the interface defined by `interfaceId`. See the corresponding https://eips.ethereum.org/EIPS/eip-165#how-interfaces-are-identified[EIP section] to learn more about how these ids are created. This function call must use less than 30 000 gas.\"},\"transferChild(uint256,address,uint256,uint256,address,uint256,bool,bytes)\":{\"details\":\"When transferring a child token, the owner of the token is set to `to`, or is not updated in the event of  `to` being the `0x0` address.\",\"params\":{\"childAddress\":\"Address of the child token's collection smart contract.\",\"childId\":\"ID of the child token in its own collection smart contract.\",\"childIndex\":\"Index of a token we are transferring, in the array it belongs to (can be either active array or  pending array)\",\"data\":\"Additional data with no specified format, sent in call to `_to`\",\"destinationId\":\"ID of the token to receive this child token (MUST be 0 if the destination is not a token)\",\"isPending\":\"A boolean value indicating whether the child token being transferred is in the pending array of  the parent token (`true`) or in the active array (`false`)\",\"to\":\"Address to which to transfer the token to\",\"tokenId\":\"ID of the parent token from which the child token is being transferred\"}}},\"title\":\"IERC7401\",\"version\":1},\"userdoc\":{\"events\":{\"AllChildrenRejected(uint256)\":{\"notice\":\"Used to notify listeners that all pending child tokens of a given token have been rejected.\"},\"ChildAccepted(uint256,uint256,address,uint256)\":{\"notice\":\"Used to notify listeners that a new child token was accepted by the parent token.\"},\"ChildProposed(uint256,uint256,address,uint256)\":{\"notice\":\"Used to notify listeners that a new token has been added to a given token's pending children array.\"},\"ChildTransferred(uint256,uint256,address,uint256,bool,bool)\":{\"notice\":\"Used to notify listeners a child token has been transferred from parent token.\"},\"NestTransfer(address,address,uint256,uint256,uint256)\":{\"notice\":\"Used to notify listeners that the token is being transferred.\"}},\"kind\":\"user\",\"methods\":{\"acceptChild(uint256,uint256,address,uint256)\":{\"notice\":\"Used to accept a pending child token for a given parent token.\"},\"addChild(uint256,uint256,bytes)\":{\"notice\":\"Used to add a child token to a given parent token.\"},\"burn(uint256,uint256)\":{\"notice\":\"Used to burn a given token.\"},\"childOf(uint256,uint256)\":{\"notice\":\"Used to retrieve a specific active child token for a given parent token.\"},\"childrenOf(uint256)\":{\"notice\":\"Used to retrieve the active child tokens of a given parent token.\"},\"directOwnerOf(uint256)\":{\"notice\":\"Used to retrieve the immediate owner of the given token.\"},\"nestTransferFrom(address,address,uint256,uint256,bytes)\":{\"notice\":\"Used to transfer the token into another token.\"},\"ownerOf(uint256)\":{\"notice\":\"Used to retrieve the *root* owner of a given token.\"},\"pendingChildOf(uint256,uint256)\":{\"notice\":\"Used to retrieve a specific pending child token from a given parent token.\"},\"pendingChildrenOf(uint256)\":{\"notice\":\"Used to retrieve the pending child tokens of a given parent token.\"},\"rejectAllChildren(uint256,uint256)\":{\"notice\":\"Used to reject all pending children of a given parent token.\"},\"transferChild(uint256,address,uint256,uint256,address,uint256,bool,bytes)\":{\"notice\":\"Used to transfer a child token from a given parent token.\"}},\"notice\":\"Interface smart contract of the RMRK nestable module.\",\"version\":1}},\"settings\":{\"compilationTarget\":{\"contracts/ERC741/interfaces/IERC7401.sol\":\"IERC7401\"},\"evmVersion\":\"shanghai\",\"libraries\":{},\"metadata\":{\"bytecodeHash\":\"ipfs\"},\"optimizer\":{\"enabled\":false,\"runs\":200},\"remappings\":[]},\"sources\":{\"@openzeppelin/contracts/utils/introspection/IERC165.sol\":{\"keccak256\":\"0x4296879f55019b23e135000eb36896057e7101fb7fb859c5ef690cf14643757b\",\"license\":\"MIT\",\"urls\":[\"bzz-raw://87b3541437c8c443ccd36795e56a338ed12855eec17f8da624511b8d1a7e14df\",\"dweb:/ipfs/QmeJQCtZrQjtJLr6u7ZHWeH3pBnjtLWzvRrKViAi7UZqxL\"]},\"contracts/ERC741/interfaces/IERC7401.sol\":{\"keccak256\":\"0xd4ad8af29d2d31484d13a4e59c012321fc8d33b713c085b95518ade7915eade0\",\"license\":\"MIT\",\"urls\":[\"bzz-raw://67f5e309eeee757f3497037dee6e35a128aa41554a6bbb9ff8293ff34d4b25f2\",\"dweb:/ipfs/QmWc5X7quhkyPtDCtmdFa4dNQ8HdJ1jbKpaXs1VoyB9xay\"]}},\"version\":1}",
+					"storageLayout": {
+						"storage": [],
+						"types": null
+					},
+					"userdoc": {
+						"events": {
+							"AllChildrenRejected(uint256)": {
+								"notice": "Used to notify listeners that all pending child tokens of a given token have been rejected."
+							},
+							"ChildAccepted(uint256,uint256,address,uint256)": {
+								"notice": "Used to notify listeners that a new child token was accepted by the parent token."
+							},
+							"ChildProposed(uint256,uint256,address,uint256)": {
+								"notice": "Used to notify listeners that a new token has been added to a given token's pending children array."
+							},
+							"ChildTransferred(uint256,uint256,address,uint256,bool,bool)": {
+								"notice": "Used to notify listeners a child token has been transferred from parent token."
+							},
+							"NestTransfer(address,address,uint256,uint256,uint256)": {
+								"notice": "Used to notify listeners that the token is being transferred."
+							}
+						},
+						"kind": "user",
+						"methods": {
+							"acceptChild(uint256,uint256,address,uint256)": {
+								"notice": "Used to accept a pending child token for a given parent token."
+							},
+							"addChild(uint256,uint256,bytes)": {
+								"notice": "Used to add a child token to a given parent token."
+							},
+							"burn(uint256,uint256)": {
+								"notice": "Used to burn a given token."
+							},
+							"childOf(uint256,uint256)": {
+								"notice": "Used to retrieve a specific active child token for a given parent token."
+							},
+							"childrenOf(uint256)": {
+								"notice": "Used to retrieve the active child tokens of a given parent token."
+							},
+							"directOwnerOf(uint256)": {
+								"notice": "Used to retrieve the immediate owner of the given token."
+							},
+							"nestTransferFrom(address,address,uint256,uint256,bytes)": {
+								"notice": "Used to transfer the token into another token."
+							},
+							"ownerOf(uint256)": {
+								"notice": "Used to retrieve the *root* owner of a given token."
+							},
+							"pendingChildOf(uint256,uint256)": {
+								"notice": "Used to retrieve a specific pending child token from a given parent token."
+							},
+							"pendingChildrenOf(uint256)": {
+								"notice": "Used to retrieve the pending child tokens of a given parent token."
+							},
+							"rejectAllChildren(uint256,uint256)": {
+								"notice": "Used to reject all pending children of a given parent token."
+							},
+							"transferChild(uint256,address,uint256,uint256,address,uint256,bool,bytes)": {
+								"notice": "Used to transfer a child token from a given parent token."
+							}
+						},
+						"notice": "Interface smart contract of the RMRK nestable module.",
+						"version": 1
+					}
+				}
+			}
+		},
+		"sources": {
+			"@openzeppelin/contracts/utils/introspection/IERC165.sol": {
+				"ast": {
+					"absolutePath": "@openzeppelin/contracts/utils/introspection/IERC165.sol",
+					"exportedSymbols": {
+						"IERC165": [
+							11
+						]
+					},
+					"id": 12,
+					"license": "MIT",
+					"nodeType": "SourceUnit",
+					"nodes": [
+						{
+							"id": 1,
+							"literals": [
+								"solidity",
+								"^",
+								"0.8",
+								".20"
+							],
+							"nodeType": "PragmaDirective",
+							"src": "115:24:0"
+						},
+						{
+							"abstract": false,
+							"baseContracts": [],
+							"canonicalName": "IERC165",
+							"contractDependencies": [],
+							"contractKind": "interface",
+							"documentation": {
+								"id": 2,
+								"nodeType": "StructuredDocumentation",
+								"src": "141:279:0",
+								"text": " @dev Interface of the ERC165 standard, as defined in the\n https://eips.ethereum.org/EIPS/eip-165[EIP].\n Implementers can declare support of contract interfaces, which can then be\n queried by others ({ERC165Checker}).\n For an implementation, see {ERC165}."
+							},
+							"fullyImplemented": false,
+							"id": 11,
+							"linearizedBaseContracts": [
+								11
+							],
+							"name": "IERC165",
+							"nameLocation": "431:7:0",
+							"nodeType": "ContractDefinition",
+							"nodes": [
+								{
+									"documentation": {
+										"id": 3,
+										"nodeType": "StructuredDocumentation",
+										"src": "445:340:0",
+										"text": " @dev Returns true if this contract implements the interface defined by\n `interfaceId`. See the corresponding\n https://eips.ethereum.org/EIPS/eip-165#how-interfaces-are-identified[EIP section]\n to learn more about how these ids are created.\n This function call must use less than 30 000 gas."
+									},
+									"functionSelector": "01ffc9a7",
+									"id": 10,
+									"implemented": false,
+									"kind": "function",
+									"modifiers": [],
+									"name": "supportsInterface",
+									"nameLocation": "799:17:0",
+									"nodeType": "FunctionDefinition",
+									"parameters": {
+										"id": 6,
+										"nodeType": "ParameterList",
+										"parameters": [
+											{
+												"constant": false,
+												"id": 5,
+												"mutability": "mutable",
+												"name": "interfaceId",
+												"nameLocation": "824:11:0",
+												"nodeType": "VariableDeclaration",
+												"scope": 10,
+												"src": "817:18:0",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_bytes4",
+													"typeString": "bytes4"
+												},
+												"typeName": {
+													"id": 4,
+													"name": "bytes4",
+													"nodeType": "ElementaryTypeName",
+													"src": "817:6:0",
+													"typeDescriptions": {
+														"typeIdentifier": "t_bytes4",
+														"typeString": "bytes4"
+													}
+												},
+												"visibility": "internal"
+											}
+										],
+										"src": "816:20:0"
+									},
+									"returnParameters": {
+										"id": 9,
+										"nodeType": "ParameterList",
+										"parameters": [
+											{
+												"constant": false,
+												"id": 8,
+												"mutability": "mutable",
+												"name": "",
+												"nameLocation": "-1:-1:-1",
+												"nodeType": "VariableDeclaration",
+												"scope": 10,
+												"src": "860:4:0",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_bool",
+													"typeString": "bool"
+												},
+												"typeName": {
+													"id": 7,
+													"name": "bool",
+													"nodeType": "ElementaryTypeName",
+													"src": "860:4:0",
+													"typeDescriptions": {
+														"typeIdentifier": "t_bool",
+														"typeString": "bool"
+													}
+												},
+												"visibility": "internal"
+											}
+										],
+										"src": "859:6:0"
+									},
+									"scope": 11,
+									"src": "790:76:0",
+									"stateMutability": "view",
+									"virtual": false,
+									"visibility": "external"
+								}
+							],
+							"scope": 12,
+							"src": "421:447:0",
+							"usedErrors": [],
+							"usedEvents": []
+						}
+					],
+					"src": "115:754:0"
+				},
+				"id": 0
+			},
+			"contracts/ERC741/interfaces/IERC7401.sol": {
+				"ast": {
+					"absolutePath": "contracts/ERC741/interfaces/IERC7401.sol",
+					"exportedSymbols": {
+						"IERC165": [
+							11
+						],
+						"IERC7401": [
+							222
+						]
+					},
+					"id": 223,
+					"license": "MIT",
+					"nodeType": "SourceUnit",
+					"nodes": [
+						{
+							"id": 13,
+							"literals": [
+								"solidity",
+								"^",
+								"0.8",
+								".21"
+							],
+							"nodeType": "PragmaDirective",
+							"src": "33:24:1"
+						},
+						{
+							"absolutePath": "@openzeppelin/contracts/utils/introspection/IERC165.sol",
+							"file": "@openzeppelin/contracts/utils/introspection/IERC165.sol",
+							"id": 15,
+							"nameLocation": "-1:-1:-1",
+							"nodeType": "ImportDirective",
+							"scope": 223,
+							"sourceUnit": 12,
+							"src": "59:80:1",
+							"symbolAliases": [
+								{
+									"foreign": {
+										"id": 14,
+										"name": "IERC165",
+										"nodeType": "Identifier",
+										"overloadedDeclarations": [],
+										"referencedDeclaration": 11,
+										"src": "67:7:1",
+										"typeDescriptions": {}
+									},
+									"nameLocation": "-1:-1:-1"
+								}
+							],
+							"unitAlias": ""
+						},
+						{
+							"abstract": false,
+							"baseContracts": [
+								{
+									"baseName": {
+										"id": 17,
+										"name": "IERC165",
+										"nameLocations": [
+											"276:7:1"
+										],
+										"nodeType": "IdentifierPath",
+										"referencedDeclaration": 11,
+										"src": "276:7:1"
+									},
+									"id": 18,
+									"nodeType": "InheritanceSpecifier",
+									"src": "276:7:1"
+								}
+							],
+							"canonicalName": "IERC7401",
+							"contractDependencies": [],
+							"contractKind": "interface",
+							"documentation": {
+								"id": 16,
+								"nodeType": "StructuredDocumentation",
+								"src": "141:112:1",
+								"text": " @title IERC7401\n @author RMRK team\n @notice Interface smart contract of the RMRK nestable module."
+							},
+							"fullyImplemented": false,
+							"id": 222,
+							"linearizedBaseContracts": [
+								222,
+								11
+							],
+							"name": "IERC7401",
+							"nameLocation": "264:8:1",
+							"nodeType": "ContractDefinition",
+							"nodes": [
+								{
+									"canonicalName": "IERC7401.DirectOwner",
+									"documentation": {
+										"id": 19,
+										"nodeType": "StructuredDocumentation",
+										"src": "290:801:1",
+										"text": " @notice The core struct of RMRK ownership.\n @dev The `DirectOwner` struct is used to store information of the next immediate owner, be it the parent token or\n  the externally owned account.\n @dev If the token is owned by the externally owned account, the `tokenId` should equal `0`.\n @param tokenId ID of the parent token\n @param ownerAddress Address of the owner of the token. If the owner is another token, then the address should be\n  the one of the parent token's collection smart contract. If the owner is externally owned account, the address\n  should be the address of this account\n @param isNft A boolean value signifying whether the token is owned by another token (`true`) or by an externally\n  owned account (`false`)"
+									},
+									"id": 24,
+									"members": [
+										{
+											"constant": false,
+											"id": 21,
+											"mutability": "mutable",
+											"name": "tokenId",
+											"nameLocation": "1133:7:1",
+											"nodeType": "VariableDeclaration",
+											"scope": 24,
+											"src": "1125:15:1",
+											"stateVariable": false,
+											"storageLocation": "default",
+											"typeDescriptions": {
+												"typeIdentifier": "t_uint256",
+												"typeString": "uint256"
+											},
+											"typeName": {
+												"id": 20,
+												"name": "uint256",
+												"nodeType": "ElementaryTypeName",
+												"src": "1125:7:1",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												}
+											},
+											"visibility": "internal"
+										},
+										{
+											"constant": false,
+											"id": 23,
+											"mutability": "mutable",
+											"name": "ownerAddress",
+											"nameLocation": "1158:12:1",
+											"nodeType": "VariableDeclaration",
+											"scope": 24,
+											"src": "1150:20:1",
+											"stateVariable": false,
+											"storageLocation": "default",
+											"typeDescriptions": {
+												"typeIdentifier": "t_address",
+												"typeString": "address"
+											},
+											"typeName": {
+												"id": 22,
+												"name": "address",
+												"nodeType": "ElementaryTypeName",
+												"src": "1150:7:1",
+												"stateMutability": "nonpayable",
+												"typeDescriptions": {
+													"typeIdentifier": "t_address",
+													"typeString": "address"
+												}
+											},
+											"visibility": "internal"
+										}
+									],
+									"name": "DirectOwner",
+									"nameLocation": "1103:11:1",
+									"nodeType": "StructDefinition",
+									"scope": 222,
+									"src": "1096:81:1",
+									"visibility": "public"
+								},
+								{
+									"anonymous": false,
+									"documentation": {
+										"id": 25,
+										"nodeType": "StructuredDocumentation",
+										"src": "1183:670:1",
+										"text": " @notice Used to notify listeners that the token is being transferred.\n @dev Emitted when `tokenId` token is transferred from `from` to `to`.\n @param from Address of the previous immediate owner, which is a smart contract if the token was nested.\n @param to Address of the new immediate owner, which is a smart contract if the token is being nested.\n @param fromTokenId ID of the previous parent token. If the token was not nested before, the value should be `0`\n @param toTokenId ID of the new parent token. If the token is not being nested, the value should be `0`\n @param tokenId ID of the token being transferred"
+									},
+									"eventSelector": "04444026cefd1b05506559cab59d1b865ae3ba4ed2fe5c894f04e522776c552d",
+									"id": 37,
+									"name": "NestTransfer",
+									"nameLocation": "1864:12:1",
+									"nodeType": "EventDefinition",
+									"parameters": {
+										"id": 36,
+										"nodeType": "ParameterList",
+										"parameters": [
+											{
+												"constant": false,
+												"id": 27,
+												"indexed": true,
+												"mutability": "mutable",
+												"name": "from",
+												"nameLocation": "1902:4:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 37,
+												"src": "1886:20:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_address",
+													"typeString": "address"
+												},
+												"typeName": {
+													"id": 26,
+													"name": "address",
+													"nodeType": "ElementaryTypeName",
+													"src": "1886:7:1",
+													"stateMutability": "nonpayable",
+													"typeDescriptions": {
+														"typeIdentifier": "t_address",
+														"typeString": "address"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 29,
+												"indexed": true,
+												"mutability": "mutable",
+												"name": "to",
+												"nameLocation": "1932:2:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 37,
+												"src": "1916:18:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_address",
+													"typeString": "address"
+												},
+												"typeName": {
+													"id": 28,
+													"name": "address",
+													"nodeType": "ElementaryTypeName",
+													"src": "1916:7:1",
+													"stateMutability": "nonpayable",
+													"typeDescriptions": {
+														"typeIdentifier": "t_address",
+														"typeString": "address"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 31,
+												"indexed": false,
+												"mutability": "mutable",
+												"name": "fromTokenId",
+												"nameLocation": "1952:11:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 37,
+												"src": "1944:19:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 30,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "1944:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 33,
+												"indexed": false,
+												"mutability": "mutable",
+												"name": "toTokenId",
+												"nameLocation": "1981:9:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 37,
+												"src": "1973:17:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 32,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "1973:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 35,
+												"indexed": true,
+												"mutability": "mutable",
+												"name": "tokenId",
+												"nameLocation": "2016:7:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 37,
+												"src": "2000:23:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 34,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "2000:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											}
+										],
+										"src": "1876:153:1"
+									},
+									"src": "1858:172:1"
+								},
+								{
+									"anonymous": false,
+									"documentation": {
+										"id": 38,
+										"nodeType": "StructuredDocumentation",
+										"src": "2036:564:1",
+										"text": " @notice Used to notify listeners that a new token has been added to a given token's pending children array.\n @dev Emitted when a child NFT is added to a token's pending array.\n @param tokenId ID of the token that received a new pending child token\n @param childIndex Index of the proposed child token in the parent token's pending children array\n @param childAddress Address of the proposed child token's collection smart contract\n @param childId ID of the child token in the child token's collection smart contract"
+									},
+									"eventSelector": "e65085e689b77b126ba0bac3b079aa8288f19f4d5445af11c76003f8ab3075dd",
+									"id": 48,
+									"name": "ChildProposed",
+									"nameLocation": "2611:13:1",
+									"nodeType": "EventDefinition",
+									"parameters": {
+										"id": 47,
+										"nodeType": "ParameterList",
+										"parameters": [
+											{
+												"constant": false,
+												"id": 40,
+												"indexed": true,
+												"mutability": "mutable",
+												"name": "tokenId",
+												"nameLocation": "2650:7:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 48,
+												"src": "2634:23:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 39,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "2634:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 42,
+												"indexed": false,
+												"mutability": "mutable",
+												"name": "childIndex",
+												"nameLocation": "2675:10:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 48,
+												"src": "2667:18:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 41,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "2667:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 44,
+												"indexed": true,
+												"mutability": "mutable",
+												"name": "childAddress",
+												"nameLocation": "2711:12:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 48,
+												"src": "2695:28:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_address",
+													"typeString": "address"
+												},
+												"typeName": {
+													"id": 43,
+													"name": "address",
+													"nodeType": "ElementaryTypeName",
+													"src": "2695:7:1",
+													"stateMutability": "nonpayable",
+													"typeDescriptions": {
+														"typeIdentifier": "t_address",
+														"typeString": "address"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 46,
+												"indexed": true,
+												"mutability": "mutable",
+												"name": "childId",
+												"nameLocation": "2749:7:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 48,
+												"src": "2733:23:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 45,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "2733:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											}
+										],
+										"src": "2624:138:1"
+									},
+									"src": "2605:158:1"
+								},
+								{
+									"anonymous": false,
+									"documentation": {
+										"id": 49,
+										"nodeType": "StructuredDocumentation",
+										"src": "2769:574:1",
+										"text": " @notice Used to notify listeners that a new child token was accepted by the parent token.\n @dev Emitted when a parent token accepts a token from its pending array, migrating it to the active array.\n @param tokenId ID of the token that accepted a new child token\n @param childIndex Index of the newly accepted child token in the parent token's active children array\n @param childAddress Address of the child token's collection smart contract\n @param childId ID of the child token in the child token's collection smart contract"
+									},
+									"eventSelector": "29486b9e2ae569b440933a9b1b421467306fa21f3dcad439c262910a634963a9",
+									"id": 59,
+									"name": "ChildAccepted",
+									"nameLocation": "3354:13:1",
+									"nodeType": "EventDefinition",
+									"parameters": {
+										"id": 58,
+										"nodeType": "ParameterList",
+										"parameters": [
+											{
+												"constant": false,
+												"id": 51,
+												"indexed": true,
+												"mutability": "mutable",
+												"name": "tokenId",
+												"nameLocation": "3393:7:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 59,
+												"src": "3377:23:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 50,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "3377:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 53,
+												"indexed": false,
+												"mutability": "mutable",
+												"name": "childIndex",
+												"nameLocation": "3418:10:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 59,
+												"src": "3410:18:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 52,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "3410:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 55,
+												"indexed": true,
+												"mutability": "mutable",
+												"name": "childAddress",
+												"nameLocation": "3454:12:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 59,
+												"src": "3438:28:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_address",
+													"typeString": "address"
+												},
+												"typeName": {
+													"id": 54,
+													"name": "address",
+													"nodeType": "ElementaryTypeName",
+													"src": "3438:7:1",
+													"stateMutability": "nonpayable",
+													"typeDescriptions": {
+														"typeIdentifier": "t_address",
+														"typeString": "address"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 57,
+												"indexed": true,
+												"mutability": "mutable",
+												"name": "childId",
+												"nameLocation": "3492:7:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 59,
+												"src": "3476:23:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 56,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "3476:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											}
+										],
+										"src": "3367:138:1"
+									},
+									"src": "3348:158:1"
+								},
+								{
+									"anonymous": false,
+									"documentation": {
+										"id": 60,
+										"nodeType": "StructuredDocumentation",
+										"src": "3512:282:1",
+										"text": " @notice Used to notify listeners that all pending child tokens of a given token have been rejected.\n @dev Emitted when a token removes all a child tokens from its pending array.\n @param tokenId ID of the token that rejected all of the pending children"
+									},
+									"eventSelector": "8ac4a0d65950c3e40448afb2260e2e0ec36ea15644d9b39e37e85472e5f94451",
+									"id": 64,
+									"name": "AllChildrenRejected",
+									"nameLocation": "3805:19:1",
+									"nodeType": "EventDefinition",
+									"parameters": {
+										"id": 63,
+										"nodeType": "ParameterList",
+										"parameters": [
+											{
+												"constant": false,
+												"id": 62,
+												"indexed": true,
+												"mutability": "mutable",
+												"name": "tokenId",
+												"nameLocation": "3841:7:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 64,
+												"src": "3825:23:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 61,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "3825:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											}
+										],
+										"src": "3824:25:1"
+									},
+									"src": "3799:51:1"
+								},
+								{
+									"anonymous": false,
+									"documentation": {
+										"id": 65,
+										"nodeType": "StructuredDocumentation",
+										"src": "3856:857:1",
+										"text": " @notice Used to notify listeners a child token has been transferred from parent token.\n @dev Emitted when a token transfers a child from itself, transferring ownership to the root owner.\n @param tokenId ID of the token that transferred a child token\n @param childIndex Index of a child in the array from which it is being transferred\n @param childAddress Address of the child token's collection smart contract\n @param childId ID of the child token in the child token's collection smart contract\n @param fromPending A boolean value signifying whether the token was in the pending child tokens array (`true`) or\n  in the active child tokens array (`false`)\n @param toZero A boolean value signifying whether the token is being transferred to the `0x0` address (`true`) or\n  not (`false`)"
+									},
+									"eventSelector": "02d6d6dbcb604d5e1e8c7886456e82a9cdce88b0a580071358f206b5a4d58f70",
+									"id": 79,
+									"name": "ChildTransferred",
+									"nameLocation": "4724:16:1",
+									"nodeType": "EventDefinition",
+									"parameters": {
+										"id": 78,
+										"nodeType": "ParameterList",
+										"parameters": [
+											{
+												"constant": false,
+												"id": 67,
+												"indexed": true,
+												"mutability": "mutable",
+												"name": "tokenId",
+												"nameLocation": "4766:7:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 79,
+												"src": "4750:23:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 66,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "4750:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 69,
+												"indexed": false,
+												"mutability": "mutable",
+												"name": "childIndex",
+												"nameLocation": "4791:10:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 79,
+												"src": "4783:18:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 68,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "4783:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 71,
+												"indexed": true,
+												"mutability": "mutable",
+												"name": "childAddress",
+												"nameLocation": "4827:12:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 79,
+												"src": "4811:28:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_address",
+													"typeString": "address"
+												},
+												"typeName": {
+													"id": 70,
+													"name": "address",
+													"nodeType": "ElementaryTypeName",
+													"src": "4811:7:1",
+													"stateMutability": "nonpayable",
+													"typeDescriptions": {
+														"typeIdentifier": "t_address",
+														"typeString": "address"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 73,
+												"indexed": true,
+												"mutability": "mutable",
+												"name": "childId",
+												"nameLocation": "4865:7:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 79,
+												"src": "4849:23:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 72,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "4849:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 75,
+												"indexed": false,
+												"mutability": "mutable",
+												"name": "fromPending",
+												"nameLocation": "4887:11:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 79,
+												"src": "4882:16:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_bool",
+													"typeString": "bool"
+												},
+												"typeName": {
+													"id": 74,
+													"name": "bool",
+													"nodeType": "ElementaryTypeName",
+													"src": "4882:4:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_bool",
+														"typeString": "bool"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 77,
+												"indexed": false,
+												"mutability": "mutable",
+												"name": "toZero",
+												"nameLocation": "4913:6:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 79,
+												"src": "4908:11:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_bool",
+													"typeString": "bool"
+												},
+												"typeName": {
+													"id": 76,
+													"name": "bool",
+													"nodeType": "ElementaryTypeName",
+													"src": "4908:4:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_bool",
+														"typeString": "bool"
+													}
+												},
+												"visibility": "internal"
+											}
+										],
+										"src": "4740:185:1"
+									},
+									"src": "4718:208:1"
+								},
+								{
+									"canonicalName": "IERC7401.Child",
+									"documentation": {
+										"id": 80,
+										"nodeType": "StructuredDocumentation",
+										"src": "4932:270:1",
+										"text": " @notice The core child token struct, holding the information about the child tokens.\n @return tokenId ID of the child token in the child token's collection smart contract\n @return contractAddress Address of the child token's smart contract"
+									},
+									"id": 85,
+									"members": [
+										{
+											"constant": false,
+											"id": 82,
+											"mutability": "mutable",
+											"name": "tokenId",
+											"nameLocation": "5238:7:1",
+											"nodeType": "VariableDeclaration",
+											"scope": 85,
+											"src": "5230:15:1",
+											"stateVariable": false,
+											"storageLocation": "default",
+											"typeDescriptions": {
+												"typeIdentifier": "t_uint256",
+												"typeString": "uint256"
+											},
+											"typeName": {
+												"id": 81,
+												"name": "uint256",
+												"nodeType": "ElementaryTypeName",
+												"src": "5230:7:1",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												}
+											},
+											"visibility": "internal"
+										},
+										{
+											"constant": false,
+											"id": 84,
+											"mutability": "mutable",
+											"name": "contractAddress",
+											"nameLocation": "5263:15:1",
+											"nodeType": "VariableDeclaration",
+											"scope": 85,
+											"src": "5255:23:1",
+											"stateVariable": false,
+											"storageLocation": "default",
+											"typeDescriptions": {
+												"typeIdentifier": "t_address",
+												"typeString": "address"
+											},
+											"typeName": {
+												"id": 83,
+												"name": "address",
+												"nodeType": "ElementaryTypeName",
+												"src": "5255:7:1",
+												"stateMutability": "nonpayable",
+												"typeDescriptions": {
+													"typeIdentifier": "t_address",
+													"typeString": "address"
+												}
+											},
+											"visibility": "internal"
+										}
+									],
+									"name": "Child",
+									"nameLocation": "5214:5:1",
+									"nodeType": "StructDefinition",
+									"scope": 222,
+									"src": "5207:78:1",
+									"visibility": "public"
+								},
+								{
+									"documentation": {
+										"id": 86,
+										"nodeType": "StructuredDocumentation",
+										"src": "5291:450:1",
+										"text": " @notice Used to retrieve the *root* owner of a given token.\n @dev The *root* owner of the token is an externally owned account (EOA). If the given token is child of another\n  NFT, this will return an EOA address. Otherwise, if the token is owned by an EOA, this EOA will be returned.\n @param tokenId ID of the token for which the *root* owner has been retrieved\n @return owner_ The *root* owner of the token"
+									},
+									"functionSelector": "6352211e",
+									"id": 93,
+									"implemented": false,
+									"kind": "function",
+									"modifiers": [],
+									"name": "ownerOf",
+									"nameLocation": "5755:7:1",
+									"nodeType": "FunctionDefinition",
+									"parameters": {
+										"id": 89,
+										"nodeType": "ParameterList",
+										"parameters": [
+											{
+												"constant": false,
+												"id": 88,
+												"mutability": "mutable",
+												"name": "tokenId",
+												"nameLocation": "5771:7:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 93,
+												"src": "5763:15:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 87,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "5763:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											}
+										],
+										"src": "5762:17:1"
+									},
+									"returnParameters": {
+										"id": 92,
+										"nodeType": "ParameterList",
+										"parameters": [
+											{
+												"constant": false,
+												"id": 91,
+												"mutability": "mutable",
+												"name": "owner_",
+												"nameLocation": "5811:6:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 93,
+												"src": "5803:14:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_address",
+													"typeString": "address"
+												},
+												"typeName": {
+													"id": 90,
+													"name": "address",
+													"nodeType": "ElementaryTypeName",
+													"src": "5803:7:1",
+													"stateMutability": "nonpayable",
+													"typeDescriptions": {
+														"typeIdentifier": "t_address",
+														"typeString": "address"
+													}
+												},
+												"visibility": "internal"
+											}
+										],
+										"src": "5802:16:1"
+									},
+									"scope": 222,
+									"src": "5746:73:1",
+									"stateMutability": "view",
+									"virtual": false,
+									"visibility": "external"
+								},
+								{
+									"documentation": {
+										"id": 94,
+										"nodeType": "StructuredDocumentation",
+										"src": "5825:537:1",
+										"text": " @notice Used to retrieve the immediate owner of the given token.\n @dev If the immediate owner is another token, the address returned will be the parent token's collection address.\n @param tokenId ID of the token for which the RMRK owner is being retrieved\n @return owner Address of the given token's owner\n @return parentId The ID of the parent token. Should be `0` if the owner is an externally owned account\n @return isNFT The boolean value signifying whether the owner is an NFT or not"
+									},
+									"functionSelector": "fb25fb7a",
+									"id": 105,
+									"implemented": false,
+									"kind": "function",
+									"modifiers": [],
+									"name": "directOwnerOf",
+									"nameLocation": "6376:13:1",
+									"nodeType": "FunctionDefinition",
+									"parameters": {
+										"id": 97,
+										"nodeType": "ParameterList",
+										"parameters": [
+											{
+												"constant": false,
+												"id": 96,
+												"mutability": "mutable",
+												"name": "tokenId",
+												"nameLocation": "6407:7:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 105,
+												"src": "6399:15:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 95,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "6399:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											}
+										],
+										"src": "6389:31:1"
+									},
+									"returnParameters": {
+										"id": 104,
+										"nodeType": "ParameterList",
+										"parameters": [
+											{
+												"constant": false,
+												"id": 99,
+												"mutability": "mutable",
+												"name": "owner",
+												"nameLocation": "6452:5:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 105,
+												"src": "6444:13:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_address",
+													"typeString": "address"
+												},
+												"typeName": {
+													"id": 98,
+													"name": "address",
+													"nodeType": "ElementaryTypeName",
+													"src": "6444:7:1",
+													"stateMutability": "nonpayable",
+													"typeDescriptions": {
+														"typeIdentifier": "t_address",
+														"typeString": "address"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 101,
+												"mutability": "mutable",
+												"name": "parentId",
+												"nameLocation": "6467:8:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 105,
+												"src": "6459:16:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 100,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "6459:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 103,
+												"mutability": "mutable",
+												"name": "isNFT",
+												"nameLocation": "6482:5:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 105,
+												"src": "6477:10:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_bool",
+													"typeString": "bool"
+												},
+												"typeName": {
+													"id": 102,
+													"name": "bool",
+													"nodeType": "ElementaryTypeName",
+													"src": "6477:4:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_bool",
+														"typeString": "bool"
+													}
+												},
+												"visibility": "internal"
+											}
+										],
+										"src": "6443:45:1"
+									},
+									"scope": 222,
+									"src": "6367:122:1",
+									"stateMutability": "view",
+									"virtual": false,
+									"visibility": "external"
+								},
+								{
+									"documentation": {
+										"id": 106,
+										"nodeType": "StructuredDocumentation",
+										"src": "6495:799:1",
+										"text": " @notice Used to burn a given token.\n @dev When a token is burned, all of its child tokens are recursively burned as well.\n @dev When specifying the maximum recursive burns, the execution will be reverted if there are more children to be\n  burned.\n @dev Setting the `maxRecursiveBurn` value to 0 will only attempt to burn the specified token and revert if there\n  are any child tokens present.\n @dev The approvals are cleared when the token is burned.\n @dev Requirements:\n  - `tokenId` must exist.\n @dev Emits a {Transfer} event.\n @param tokenId ID of the token to burn\n @param maxRecursiveBurns Maximum number of tokens to recursively burn\n @return burnedChildren Number of recursively burned children"
+									},
+									"functionSelector": "b390c0ab",
+									"id": 115,
+									"implemented": false,
+									"kind": "function",
+									"modifiers": [],
+									"name": "burn",
+									"nameLocation": "7308:4:1",
+									"nodeType": "FunctionDefinition",
+									"parameters": {
+										"id": 111,
+										"nodeType": "ParameterList",
+										"parameters": [
+											{
+												"constant": false,
+												"id": 108,
+												"mutability": "mutable",
+												"name": "tokenId",
+												"nameLocation": "7330:7:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 115,
+												"src": "7322:15:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 107,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "7322:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 110,
+												"mutability": "mutable",
+												"name": "maxRecursiveBurns",
+												"nameLocation": "7355:17:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 115,
+												"src": "7347:25:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 109,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "7347:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											}
+										],
+										"src": "7312:66:1"
+									},
+									"returnParameters": {
+										"id": 114,
+										"nodeType": "ParameterList",
+										"parameters": [
+											{
+												"constant": false,
+												"id": 113,
+												"mutability": "mutable",
+												"name": "burnedChildren",
+												"nameLocation": "7405:14:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 115,
+												"src": "7397:22:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 112,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "7397:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											}
+										],
+										"src": "7396:24:1"
+									},
+									"scope": 222,
+									"src": "7299:122:1",
+									"stateMutability": "nonpayable",
+									"virtual": false,
+									"visibility": "external"
+								},
+								{
+									"documentation": {
+										"id": 116,
+										"nodeType": "StructuredDocumentation",
+										"src": "7427:554:1",
+										"text": " @notice Used to add a child token to a given parent token.\n @dev This adds the child token into the given parent token's pending child tokens array.\n @dev Requirements:\n  - `directOwnerOf` on the child contract must resolve to the called contract.\n  - the pending array of the parent contract must not be full.\n @param parentId ID of the parent token to receive the new child token\n @param childId ID of the new proposed child token\n @param data Additional data with no specified format"
+									},
+									"functionSelector": "635490cc",
+									"id": 125,
+									"implemented": false,
+									"kind": "function",
+									"modifiers": [],
+									"name": "addChild",
+									"nameLocation": "7995:8:1",
+									"nodeType": "FunctionDefinition",
+									"parameters": {
+										"id": 123,
+										"nodeType": "ParameterList",
+										"parameters": [
+											{
+												"constant": false,
+												"id": 118,
+												"mutability": "mutable",
+												"name": "parentId",
+												"nameLocation": "8021:8:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 125,
+												"src": "8013:16:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 117,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "8013:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 120,
+												"mutability": "mutable",
+												"name": "childId",
+												"nameLocation": "8047:7:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 125,
+												"src": "8039:15:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 119,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "8039:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 122,
+												"mutability": "mutable",
+												"name": "data",
+												"nameLocation": "8077:4:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 125,
+												"src": "8064:17:1",
+												"stateVariable": false,
+												"storageLocation": "memory",
+												"typeDescriptions": {
+													"typeIdentifier": "t_bytes_memory_ptr",
+													"typeString": "bytes"
+												},
+												"typeName": {
+													"id": 121,
+													"name": "bytes",
+													"nodeType": "ElementaryTypeName",
+													"src": "8064:5:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_bytes_storage_ptr",
+														"typeString": "bytes"
+													}
+												},
+												"visibility": "internal"
+											}
+										],
+										"src": "8003:84:1"
+									},
+									"returnParameters": {
+										"id": 124,
+										"nodeType": "ParameterList",
+										"parameters": [],
+										"src": "8096:0:1"
+									},
+									"scope": 222,
+									"src": "7986:111:1",
+									"stateMutability": "nonpayable",
+									"virtual": false,
+									"visibility": "external"
+								},
+								{
+									"documentation": {
+										"id": 126,
+										"nodeType": "StructuredDocumentation",
+										"src": "8103:743:1",
+										"text": " @notice Used to accept a pending child token for a given parent token.\n @dev This moves the child token from parent token's pending child tokens array into the active child tokens\n  array.\n @param parentId ID of the parent token for which the child token is being accepted\n @param childIndex Index of a child tokem in the given parent's pending children array\n @param childAddress Address of the collection smart contract of the child token expected to be located at the\n  specified index of the given parent token's pending children array\n @param childId ID of the child token expected to be located at the specified index of the given parent token's\n  pending children array"
+									},
+									"functionSelector": "e97ceaa8",
+									"id": 137,
+									"implemented": false,
+									"kind": "function",
+									"modifiers": [],
+									"name": "acceptChild",
+									"nameLocation": "8860:11:1",
+									"nodeType": "FunctionDefinition",
+									"parameters": {
+										"id": 135,
+										"nodeType": "ParameterList",
+										"parameters": [
+											{
+												"constant": false,
+												"id": 128,
+												"mutability": "mutable",
+												"name": "parentId",
+												"nameLocation": "8889:8:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 137,
+												"src": "8881:16:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 127,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "8881:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 130,
+												"mutability": "mutable",
+												"name": "childIndex",
+												"nameLocation": "8915:10:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 137,
+												"src": "8907:18:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 129,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "8907:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 132,
+												"mutability": "mutable",
+												"name": "childAddress",
+												"nameLocation": "8943:12:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 137,
+												"src": "8935:20:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_address",
+													"typeString": "address"
+												},
+												"typeName": {
+													"id": 131,
+													"name": "address",
+													"nodeType": "ElementaryTypeName",
+													"src": "8935:7:1",
+													"stateMutability": "nonpayable",
+													"typeDescriptions": {
+														"typeIdentifier": "t_address",
+														"typeString": "address"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 134,
+												"mutability": "mutable",
+												"name": "childId",
+												"nameLocation": "8973:7:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 137,
+												"src": "8965:15:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 133,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "8965:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											}
+										],
+										"src": "8871:115:1"
+									},
+									"returnParameters": {
+										"id": 136,
+										"nodeType": "ParameterList",
+										"parameters": [],
+										"src": "8995:0:1"
+									},
+									"scope": 222,
+									"src": "8851:145:1",
+									"stateMutability": "nonpayable",
+									"virtual": false,
+									"visibility": "external"
+								},
+								{
+									"documentation": {
+										"id": 138,
+										"nodeType": "StructuredDocumentation",
+										"src": "9002:664:1",
+										"text": " @notice Used to reject all pending children of a given parent token.\n @dev Removes the children from the pending array mapping.\n @dev This does not update the ownership storage data on children. If necessary, ownership can be reclaimed by the\n  rootOwner of the previous parent.\n @dev Requirements:\n Requirements:\n - `parentId` must exist\n @param parentId ID of the parent token for which to reject all of the pending tokens.\n @param maxRejections Maximum number of expected children to reject, used to prevent from rejecting children which\n  arrive just before this operation."
+									},
+									"functionSelector": "97961336",
+									"id": 145,
+									"implemented": false,
+									"kind": "function",
+									"modifiers": [],
+									"name": "rejectAllChildren",
+									"nameLocation": "9680:17:1",
+									"nodeType": "FunctionDefinition",
+									"parameters": {
+										"id": 143,
+										"nodeType": "ParameterList",
+										"parameters": [
+											{
+												"constant": false,
+												"id": 140,
+												"mutability": "mutable",
+												"name": "parentId",
+												"nameLocation": "9715:8:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 145,
+												"src": "9707:16:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 139,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "9707:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 142,
+												"mutability": "mutable",
+												"name": "maxRejections",
+												"nameLocation": "9741:13:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 145,
+												"src": "9733:21:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 141,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "9733:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											}
+										],
+										"src": "9697:63:1"
+									},
+									"returnParameters": {
+										"id": 144,
+										"nodeType": "ParameterList",
+										"parameters": [],
+										"src": "9769:0:1"
+									},
+									"scope": 222,
+									"src": "9671:99:1",
+									"stateMutability": "nonpayable",
+									"virtual": false,
+									"visibility": "external"
+								},
+								{
+									"documentation": {
+										"id": 146,
+										"nodeType": "StructuredDocumentation",
+										"src": "9776:1089:1",
+										"text": " @notice Used to transfer a child token from a given parent token.\n @dev When transferring a child token, the owner of the token is set to `to`, or is not updated in the event of\n  `to` being the `0x0` address.\n @param tokenId ID of the parent token from which the child token is being transferred\n @param to Address to which to transfer the token to\n @param destinationId ID of the token to receive this child token (MUST be 0 if the destination is not a token)\n @param childIndex Index of a token we are transferring, in the array it belongs to (can be either active array or\n  pending array)\n @param childAddress Address of the child token's collection smart contract.\n @param childId ID of the child token in its own collection smart contract.\n @param isPending A boolean value indicating whether the child token being transferred is in the pending array of\n  the parent token (`true`) or in the active array (`false`)\n @param data Additional data with no specified format, sent in call to `_to`"
+									},
+									"functionSelector": "defa80c3",
+									"id": 165,
+									"implemented": false,
+									"kind": "function",
+									"modifiers": [],
+									"name": "transferChild",
+									"nameLocation": "10879:13:1",
+									"nodeType": "FunctionDefinition",
+									"parameters": {
+										"id": 163,
+										"nodeType": "ParameterList",
+										"parameters": [
+											{
+												"constant": false,
+												"id": 148,
+												"mutability": "mutable",
+												"name": "tokenId",
+												"nameLocation": "10910:7:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 165,
+												"src": "10902:15:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 147,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "10902:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 150,
+												"mutability": "mutable",
+												"name": "to",
+												"nameLocation": "10935:2:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 165,
+												"src": "10927:10:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_address",
+													"typeString": "address"
+												},
+												"typeName": {
+													"id": 149,
+													"name": "address",
+													"nodeType": "ElementaryTypeName",
+													"src": "10927:7:1",
+													"stateMutability": "nonpayable",
+													"typeDescriptions": {
+														"typeIdentifier": "t_address",
+														"typeString": "address"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 152,
+												"mutability": "mutable",
+												"name": "destinationId",
+												"nameLocation": "10955:13:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 165,
+												"src": "10947:21:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 151,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "10947:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 154,
+												"mutability": "mutable",
+												"name": "childIndex",
+												"nameLocation": "10986:10:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 165,
+												"src": "10978:18:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 153,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "10978:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 156,
+												"mutability": "mutable",
+												"name": "childAddress",
+												"nameLocation": "11014:12:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 165,
+												"src": "11006:20:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_address",
+													"typeString": "address"
+												},
+												"typeName": {
+													"id": 155,
+													"name": "address",
+													"nodeType": "ElementaryTypeName",
+													"src": "11006:7:1",
+													"stateMutability": "nonpayable",
+													"typeDescriptions": {
+														"typeIdentifier": "t_address",
+														"typeString": "address"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 158,
+												"mutability": "mutable",
+												"name": "childId",
+												"nameLocation": "11044:7:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 165,
+												"src": "11036:15:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 157,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "11036:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 160,
+												"mutability": "mutable",
+												"name": "isPending",
+												"nameLocation": "11066:9:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 165,
+												"src": "11061:14:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_bool",
+													"typeString": "bool"
+												},
+												"typeName": {
+													"id": 159,
+													"name": "bool",
+													"nodeType": "ElementaryTypeName",
+													"src": "11061:4:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_bool",
+														"typeString": "bool"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 162,
+												"mutability": "mutable",
+												"name": "data",
+												"nameLocation": "11098:4:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 165,
+												"src": "11085:17:1",
+												"stateVariable": false,
+												"storageLocation": "memory",
+												"typeDescriptions": {
+													"typeIdentifier": "t_bytes_memory_ptr",
+													"typeString": "bytes"
+												},
+												"typeName": {
+													"id": 161,
+													"name": "bytes",
+													"nodeType": "ElementaryTypeName",
+													"src": "11085:5:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_bytes_storage_ptr",
+														"typeString": "bytes"
+													}
+												},
+												"visibility": "internal"
+											}
+										],
+										"src": "10892:216:1"
+									},
+									"returnParameters": {
+										"id": 164,
+										"nodeType": "ParameterList",
+										"parameters": [],
+										"src": "11117:0:1"
+									},
+									"scope": 222,
+									"src": "10870:248:1",
+									"stateMutability": "nonpayable",
+									"virtual": false,
+									"visibility": "external"
+								},
+								{
+									"documentation": {
+										"id": 166,
+										"nodeType": "StructuredDocumentation",
+										"src": "11124:486:1",
+										"text": " @notice Used to retrieve the active child tokens of a given parent token.\n @dev Returns array of Child structs existing for parent token.\n @dev The Child struct consists of the following values:\n  [\n      tokenId,\n      contractAddress\n  ]\n @param parentId ID of the parent token for which to retrieve the active child tokens\n @return children An array of Child structs containing the parent token's active child tokens"
+									},
+									"functionSelector": "6f19951c",
+									"id": 175,
+									"implemented": false,
+									"kind": "function",
+									"modifiers": [],
+									"name": "childrenOf",
+									"nameLocation": "11624:10:1",
+									"nodeType": "FunctionDefinition",
+									"parameters": {
+										"id": 169,
+										"nodeType": "ParameterList",
+										"parameters": [
+											{
+												"constant": false,
+												"id": 168,
+												"mutability": "mutable",
+												"name": "parentId",
+												"nameLocation": "11652:8:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 175,
+												"src": "11644:16:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 167,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "11644:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											}
+										],
+										"src": "11634:32:1"
+									},
+									"returnParameters": {
+										"id": 174,
+										"nodeType": "ParameterList",
+										"parameters": [
+											{
+												"constant": false,
+												"id": 173,
+												"mutability": "mutable",
+												"name": "children",
+												"nameLocation": "11705:8:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 175,
+												"src": "11690:23:1",
+												"stateVariable": false,
+												"storageLocation": "memory",
+												"typeDescriptions": {
+													"typeIdentifier": "t_array$_t_struct$_Child_$85_memory_ptr_$dyn_memory_ptr",
+													"typeString": "struct IERC7401.Child[]"
+												},
+												"typeName": {
+													"baseType": {
+														"id": 171,
+														"nodeType": "UserDefinedTypeName",
+														"pathNode": {
+															"id": 170,
+															"name": "Child",
+															"nameLocations": [
+																"11690:5:1"
+															],
+															"nodeType": "IdentifierPath",
+															"referencedDeclaration": 85,
+															"src": "11690:5:1"
+														},
+														"referencedDeclaration": 85,
+														"src": "11690:5:1",
+														"typeDescriptions": {
+															"typeIdentifier": "t_struct$_Child_$85_storage_ptr",
+															"typeString": "struct IERC7401.Child"
+														}
+													},
+													"id": 172,
+													"nodeType": "ArrayTypeName",
+													"src": "11690:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_array$_t_struct$_Child_$85_storage_$dyn_storage_ptr",
+														"typeString": "struct IERC7401.Child[]"
+													}
+												},
+												"visibility": "internal"
+											}
+										],
+										"src": "11689:25:1"
+									},
+									"scope": 222,
+									"src": "11615:100:1",
+									"stateMutability": "view",
+									"virtual": false,
+									"visibility": "external"
+								},
+								{
+									"documentation": {
+										"id": 176,
+										"nodeType": "StructuredDocumentation",
+										"src": "11721:497:1",
+										"text": " @notice Used to retrieve the pending child tokens of a given parent token.\n @dev Returns array of pending Child structs existing for given parent.\n @dev The Child struct consists of the following values:\n  [\n      tokenId,\n      contractAddress\n  ]\n @param parentId ID of the parent token for which to retrieve the pending child tokens\n @return children An array of Child structs containing the parent token's pending child tokens"
+									},
+									"functionSelector": "44ec9344",
+									"id": 185,
+									"implemented": false,
+									"kind": "function",
+									"modifiers": [],
+									"name": "pendingChildrenOf",
+									"nameLocation": "12232:17:1",
+									"nodeType": "FunctionDefinition",
+									"parameters": {
+										"id": 179,
+										"nodeType": "ParameterList",
+										"parameters": [
+											{
+												"constant": false,
+												"id": 178,
+												"mutability": "mutable",
+												"name": "parentId",
+												"nameLocation": "12267:8:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 185,
+												"src": "12259:16:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 177,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "12259:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											}
+										],
+										"src": "12249:32:1"
+									},
+									"returnParameters": {
+										"id": 184,
+										"nodeType": "ParameterList",
+										"parameters": [
+											{
+												"constant": false,
+												"id": 183,
+												"mutability": "mutable",
+												"name": "children",
+												"nameLocation": "12320:8:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 185,
+												"src": "12305:23:1",
+												"stateVariable": false,
+												"storageLocation": "memory",
+												"typeDescriptions": {
+													"typeIdentifier": "t_array$_t_struct$_Child_$85_memory_ptr_$dyn_memory_ptr",
+													"typeString": "struct IERC7401.Child[]"
+												},
+												"typeName": {
+													"baseType": {
+														"id": 181,
+														"nodeType": "UserDefinedTypeName",
+														"pathNode": {
+															"id": 180,
+															"name": "Child",
+															"nameLocations": [
+																"12305:5:1"
+															],
+															"nodeType": "IdentifierPath",
+															"referencedDeclaration": 85,
+															"src": "12305:5:1"
+														},
+														"referencedDeclaration": 85,
+														"src": "12305:5:1",
+														"typeDescriptions": {
+															"typeIdentifier": "t_struct$_Child_$85_storage_ptr",
+															"typeString": "struct IERC7401.Child"
+														}
+													},
+													"id": 182,
+													"nodeType": "ArrayTypeName",
+													"src": "12305:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_array$_t_struct$_Child_$85_storage_$dyn_storage_ptr",
+														"typeString": "struct IERC7401.Child[]"
+													}
+												},
+												"visibility": "internal"
+											}
+										],
+										"src": "12304:25:1"
+									},
+									"scope": 222,
+									"src": "12223:107:1",
+									"stateMutability": "view",
+									"virtual": false,
+									"visibility": "external"
+								},
+								{
+									"documentation": {
+										"id": 186,
+										"nodeType": "StructuredDocumentation",
+										"src": "12336:594:1",
+										"text": " @notice Used to retrieve a specific active child token for a given parent token.\n @dev Returns a single Child struct locating at `index` of parent token's active child tokens array.\n @dev The Child struct consists of the following values:\n  [\n      tokenId,\n      contractAddress\n  ]\n @param parentId ID of the parent token for which the child is being retrieved\n @param index Index of the child token in the parent token's active child tokens array\n @return child A Child struct containing data about the specified child"
+									},
+									"functionSelector": "2f32f937",
+									"id": 196,
+									"implemented": false,
+									"kind": "function",
+									"modifiers": [],
+									"name": "childOf",
+									"nameLocation": "12944:7:1",
+									"nodeType": "FunctionDefinition",
+									"parameters": {
+										"id": 191,
+										"nodeType": "ParameterList",
+										"parameters": [
+											{
+												"constant": false,
+												"id": 188,
+												"mutability": "mutable",
+												"name": "parentId",
+												"nameLocation": "12969:8:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 196,
+												"src": "12961:16:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 187,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "12961:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 190,
+												"mutability": "mutable",
+												"name": "index",
+												"nameLocation": "12995:5:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 196,
+												"src": "12987:13:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 189,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "12987:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											}
+										],
+										"src": "12951:55:1"
+									},
+									"returnParameters": {
+										"id": 195,
+										"nodeType": "ParameterList",
+										"parameters": [
+											{
+												"constant": false,
+												"id": 194,
+												"mutability": "mutable",
+												"name": "child",
+												"nameLocation": "13043:5:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 196,
+												"src": "13030:18:1",
+												"stateVariable": false,
+												"storageLocation": "memory",
+												"typeDescriptions": {
+													"typeIdentifier": "t_struct$_Child_$85_memory_ptr",
+													"typeString": "struct IERC7401.Child"
+												},
+												"typeName": {
+													"id": 193,
+													"nodeType": "UserDefinedTypeName",
+													"pathNode": {
+														"id": 192,
+														"name": "Child",
+														"nameLocations": [
+															"13030:5:1"
+														],
+														"nodeType": "IdentifierPath",
+														"referencedDeclaration": 85,
+														"src": "13030:5:1"
+													},
+													"referencedDeclaration": 85,
+													"src": "13030:5:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_struct$_Child_$85_storage_ptr",
+														"typeString": "struct IERC7401.Child"
+													}
+												},
+												"visibility": "internal"
+											}
+										],
+										"src": "13029:20:1"
+									},
+									"scope": 222,
+									"src": "12935:115:1",
+									"stateMutability": "view",
+									"virtual": false,
+									"visibility": "external"
+								},
+								{
+									"documentation": {
+										"id": 197,
+										"nodeType": "StructuredDocumentation",
+										"src": "13056:612:1",
+										"text": " @notice Used to retrieve a specific pending child token from a given parent token.\n @dev Returns a single Child struct locating at `index` of parent token's active child tokens array.\n @dev The Child struct consists of the following values:\n  [\n      tokenId,\n      contractAddress\n  ]\n @param parentId ID of the parent token for which the pending child token is being retrieved\n @param index Index of the child token in the parent token's pending child tokens array\n @return child A Child struct containting data about the specified child"
+									},
+									"functionSelector": "a898e364",
+									"id": 207,
+									"implemented": false,
+									"kind": "function",
+									"modifiers": [],
+									"name": "pendingChildOf",
+									"nameLocation": "13682:14:1",
+									"nodeType": "FunctionDefinition",
+									"parameters": {
+										"id": 202,
+										"nodeType": "ParameterList",
+										"parameters": [
+											{
+												"constant": false,
+												"id": 199,
+												"mutability": "mutable",
+												"name": "parentId",
+												"nameLocation": "13714:8:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 207,
+												"src": "13706:16:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 198,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "13706:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 201,
+												"mutability": "mutable",
+												"name": "index",
+												"nameLocation": "13740:5:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 207,
+												"src": "13732:13:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 200,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "13732:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											}
+										],
+										"src": "13696:55:1"
+									},
+									"returnParameters": {
+										"id": 206,
+										"nodeType": "ParameterList",
+										"parameters": [
+											{
+												"constant": false,
+												"id": 205,
+												"mutability": "mutable",
+												"name": "child",
+												"nameLocation": "13788:5:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 207,
+												"src": "13775:18:1",
+												"stateVariable": false,
+												"storageLocation": "memory",
+												"typeDescriptions": {
+													"typeIdentifier": "t_struct$_Child_$85_memory_ptr",
+													"typeString": "struct IERC7401.Child"
+												},
+												"typeName": {
+													"id": 204,
+													"nodeType": "UserDefinedTypeName",
+													"pathNode": {
+														"id": 203,
+														"name": "Child",
+														"nameLocations": [
+															"13775:5:1"
+														],
+														"nodeType": "IdentifierPath",
+														"referencedDeclaration": 85,
+														"src": "13775:5:1"
+													},
+													"referencedDeclaration": 85,
+													"src": "13775:5:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_struct$_Child_$85_storage_ptr",
+														"typeString": "struct IERC7401.Child"
+													}
+												},
+												"visibility": "internal"
+											}
+										],
+										"src": "13774:20:1"
+									},
+									"scope": 222,
+									"src": "13673:122:1",
+									"stateMutability": "view",
+									"virtual": false,
+									"visibility": "external"
+								},
+								{
+									"documentation": {
+										"id": 208,
+										"nodeType": "StructuredDocumentation",
+										"src": "13801:453:1",
+										"text": " @notice Used to transfer the token into another token.\n @param from Address of the direct owner of the token to be transferred\n @param to Address of the receiving token's collection smart contract\n @param tokenId ID of the token being transferred\n @param destinationId ID of the token to receive the token being transferred\n @param data Additional data with no specified format, sent in the addChild call"
+									},
+									"functionSelector": "064c0a3a",
+									"id": 221,
+									"implemented": false,
+									"kind": "function",
+									"modifiers": [],
+									"name": "nestTransferFrom",
+									"nameLocation": "14268:16:1",
+									"nodeType": "FunctionDefinition",
+									"parameters": {
+										"id": 219,
+										"nodeType": "ParameterList",
+										"parameters": [
+											{
+												"constant": false,
+												"id": 210,
+												"mutability": "mutable",
+												"name": "from",
+												"nameLocation": "14302:4:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 221,
+												"src": "14294:12:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_address",
+													"typeString": "address"
+												},
+												"typeName": {
+													"id": 209,
+													"name": "address",
+													"nodeType": "ElementaryTypeName",
+													"src": "14294:7:1",
+													"stateMutability": "nonpayable",
+													"typeDescriptions": {
+														"typeIdentifier": "t_address",
+														"typeString": "address"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 212,
+												"mutability": "mutable",
+												"name": "to",
+												"nameLocation": "14324:2:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 221,
+												"src": "14316:10:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_address",
+													"typeString": "address"
+												},
+												"typeName": {
+													"id": 211,
+													"name": "address",
+													"nodeType": "ElementaryTypeName",
+													"src": "14316:7:1",
+													"stateMutability": "nonpayable",
+													"typeDescriptions": {
+														"typeIdentifier": "t_address",
+														"typeString": "address"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 214,
+												"mutability": "mutable",
+												"name": "tokenId",
+												"nameLocation": "14344:7:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 221,
+												"src": "14336:15:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 213,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "14336:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 216,
+												"mutability": "mutable",
+												"name": "destinationId",
+												"nameLocation": "14369:13:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 221,
+												"src": "14361:21:1",
+												"stateVariable": false,
+												"storageLocation": "default",
+												"typeDescriptions": {
+													"typeIdentifier": "t_uint256",
+													"typeString": "uint256"
+												},
+												"typeName": {
+													"id": 215,
+													"name": "uint256",
+													"nodeType": "ElementaryTypeName",
+													"src": "14361:7:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_uint256",
+														"typeString": "uint256"
+													}
+												},
+												"visibility": "internal"
+											},
+											{
+												"constant": false,
+												"id": 218,
+												"mutability": "mutable",
+												"name": "data",
+												"nameLocation": "14405:4:1",
+												"nodeType": "VariableDeclaration",
+												"scope": 221,
+												"src": "14392:17:1",
+												"stateVariable": false,
+												"storageLocation": "memory",
+												"typeDescriptions": {
+													"typeIdentifier": "t_bytes_memory_ptr",
+													"typeString": "bytes"
+												},
+												"typeName": {
+													"id": 217,
+													"name": "bytes",
+													"nodeType": "ElementaryTypeName",
+													"src": "14392:5:1",
+													"typeDescriptions": {
+														"typeIdentifier": "t_bytes_storage_ptr",
+														"typeString": "bytes"
+													}
+												},
+												"visibility": "internal"
+											}
+										],
+										"src": "14284:131:1"
+									},
+									"returnParameters": {
+										"id": 220,
+										"nodeType": "ParameterList",
+										"parameters": [],
+										"src": "14424:0:1"
+									},
+									"scope": 222,
+									"src": "14259:166:1",
+									"stateMutability": "nonpayable",
+									"virtual": false,
+									"visibility": "external"
+								}
+							],
+							"scope": 223,
+							"src": "254:14173:1",
+							"usedErrors": [],
+							"usedEvents": [
+								37,
+								48,
+								59,
+								64,
+								79
+							]
+						}
+					],
+					"src": "33:14394:1"
+				},
+				"id": 1
+			}
+		}
+	}
+}
